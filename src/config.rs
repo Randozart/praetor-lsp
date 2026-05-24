@@ -100,6 +100,42 @@ impl Default for FormalVerificationConfig {
     }
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct StateGraphConfig {
+    pub enabled: bool,
+    pub path: String,
+}
+
+impl Default for StateGraphConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            path: ".praetor/state-graph.json".into(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct DatalogConfig {
+    pub auth_functions: Vec<String>,
+    pub private_data_labels: Vec<String>,
+    pub entry_points: Vec<String>,
+    pub log_functions: Vec<String>,
+}
+
+impl Default for DatalogConfig {
+    fn default() -> Self {
+        Self {
+            auth_functions: vec!["authenticate".into()],
+            private_data_labels: vec!["private_data".into()],
+            entry_points: vec!["main".into(), "run".into()],
+            log_functions: vec!["log_access".into()],
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(default)]
 pub struct PraetorConfig {
@@ -108,6 +144,8 @@ pub struct PraetorConfig {
     pub security: SecurityConfig,
     pub lsp: LspConfig,
     pub formal_verification: FormalVerificationConfig,
+    pub state_graph: StateGraphConfig,
+    pub datalog: DatalogConfig,
     #[serde(skip)]
     pub path: Option<PathBuf>,
 }

@@ -73,12 +73,14 @@ impl CheckPipeline {
         // Datalog facts check (always runs — built-in rules)
         results.extend(facts::check_facts(parsed));
 
-        // State graph validation (if .praetor/state-graph.json exists)
-        if let Some(dir) = praetor_dir {
-            let state_graph_path = dir.join("state-graph.json");
-            if state_graph_path.is_file() {
-                if let Some(graph) = StateGraph::load(&state_graph_path) {
-                    results.extend(state_graph::check_state_graph(parsed, &graph));
+        // State graph validation (opt-in — default disabled)
+        if config.state_graph.enabled {
+            if let Some(dir) = praetor_dir {
+                let state_graph_path = dir.join(&config.state_graph.path);
+                if state_graph_path.is_file() {
+                    if let Some(graph) = StateGraph::load(&state_graph_path) {
+                        results.extend(state_graph::check_state_graph(parsed, &graph));
+                    }
                 }
             }
         }
