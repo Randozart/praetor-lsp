@@ -81,7 +81,8 @@ impl Report {
                 // Skip common build artifacts and vendored dirs
                 !matches!(name.as_ref(),
                     "target" | ".git" | "node_modules" | ".venv" | "venv"
-                    | "__pycache__" | ".next" | "dist" | "build"
+                    | "__pycache__" | ".next" | "dist" | "build" | "test"
+                    | "tests" | "scripts" | "lib"
                 )
             })
             .filter_map(|e| e.ok())
