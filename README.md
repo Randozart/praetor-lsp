@@ -1,12 +1,16 @@
-# Praetor
+# Praetor LSP
 
-**Quadruple-bookkeeping formal verification LSP.**
+<img src="assets/praetor-logo.svg" alt="Praetor Logo" width="200"/>
+
+**Draconic anti-AI slop formal verification LSP.**
 
 Praetor is a language server that enforces four mutually-reinforcing pillars of
 verification: **Code**, **Docs**, **State Graph**, and **Datalog Facts**. It
 combines tree-sitter AST analysis, a built-in Datalog engine, and integration
 with industry-standard security tools to provide real-time verification in any
-LSP-capable editor.
+LSP-capable editor to force any AI agent working on a project to be thorough and write human legible and maintainable code.
+
+**It is HIGHLY recommended not to use Praetor as your own human LSP. You WILL hate using it, unless you pride yourself a programming masochist**
 
 > **Phase of development:** Early but functional. Praetor self-verifies (it runs
 > on its own source code) and produces diagnostics on any supported language.
@@ -14,7 +18,6 @@ LSP-capable editor.
 > corresponding CLI tools to be installed separately. See [docs/ENFORCEMENT-PLAN.md](./docs/ENFORCEMENT-PLAN.md)
 > for the full roadmap.
 
----
 
 ## Features
 
@@ -34,8 +37,6 @@ LSP-capable editor.
 - **Pre-commit hook** — automatic via `praetor init`, blocks commits with unproven diagnostics
 - **CI gate** — `praetor validate --warn --json` for GitHub Actions
 
----
-
 ## Quick start
 
 ```bash
@@ -54,7 +55,7 @@ praetor
 
 ### OpenCode integration
 
-Praetor is registered as an LSP server in OpenCode. Add to your
+Praetor can be registered as an LSP server in OpenCode. Add to your
 `~/.config/opencode/opencode.json`:
 
 ```jsonc
@@ -79,8 +80,6 @@ require('lspconfig').praetor = {
   filetypes = { "python", "javascript", "typescript", "go", "c", "cpp", "rust", "java" },
 }
 ```
-
----
 
 ## Configuration
 
@@ -118,8 +117,6 @@ entry_points = ["main", "run", "start", "handle"]
 log_functions = ["log", "log_access", "audit"]
 ```
 
----
-
 ## AI integration
 
 Praetor is designed to work with AI coding assistants. The project includes
@@ -133,7 +130,6 @@ two key documents for configuring an AI agent:
 For full details of the development process, see [docs/LESSONS.md](./docs/LESSONS.md)
 and [docs/ENFORCEMENT-PLAN.md](./docs/ENFORCEMENT-PLAN.md).
 
----
 
 ## Shadow verification
 
@@ -153,9 +149,7 @@ cargo test bench_hot_function
 
 If the original is faster, the warning is permanently silenced and recorded
 in `.praetor/shadow-results.json`. The benchmark machine is the sole judge —
-no inline exceptions, no human override.
-
----
+no inline exceptions, no human or AI override.
 
 ## Commands
 
@@ -166,8 +160,6 @@ no inline exceptions, no human override.
 | `praetor validate --warn` | CI gate (exit 1 on unproven diagnostics) |
 | `praetor init` | Set up `.praetor/` and pre-commit hook |
 | `praetor verify --shadow <file>` | Generate benchmark scaffold |
-
----
 
 ## Architecture
 
@@ -183,7 +175,6 @@ Praetor enforces **four pillars** of verification:
 For full details, see [docs/QUADRUPLE-BOOKKEEPING.md](./docs/QUADRUPLE-BOOKKEEPING.md)
 and [docs/SHADOW-VERIFICATION.md](./docs/SHADOW-VERIFICATION.md).
 
----
 
 ## External tool bridges
 
@@ -195,8 +186,6 @@ detected at runtime — install the relevant tool and Praetor will use it.
 | [Semgrep](https://semgrep.dev) | All 9 | `pip install semgrep` | Structured JSON output parsed into diagnostics |
 | [Infer](https://fbinfer.com) | C, C++, Java | `brew install infer` or download from GitHub | Runs infer, reads `infer-out/report.json` |
 | [SonarLint](https://sonarsource.com) | All 9 | `java -jar sonarlint-language-server.jar` (LSP subprocess, stub) | LSP-to-LSP bridge (not yet implemented) |
-
----
 
 ## Credits and acknowledgements
 
@@ -253,11 +242,9 @@ The quadruple-bookkeeping architecture draws on concepts from
 [Model Checking](https://en.wikipedia.org/wiki/Model_checking)
 (Clarke, Emerson, Sifakis).
 
----
-
 ## License
 
-Praetor is distributed under the MIT license. See [LICENSE](./LICENSE) for
+Praetor is distributed under the Apache 2.0 license. See [LICENSE](./LICENSE) for
 details.
 
 External tools carry their own licenses as listed above.
