@@ -91,97 +91,96 @@ pub fn check_state_graph(
         }
         let fn_name: &str = &fn_name_owned;
 
-        // Skip functions with no relation to the state graph
-        let has_known_action = known_actions.iter().any(|a| fn_name.contains(a));
-        let has_known_state = known_states.iter().any(|s| fn_name.contains(s));
-        if !has_known_action && !has_known_state {
+        if !is_related_to_graph(fn_name, &known_actions, &known_states) {
             continue;
         }
 
+        let nrange = node_range(name_node);
         let body_text = node_text(child, source);
-        let is_exact_action = known_actions.contains(fn_name);
 
-        // Exact action match: verify from-state and to-state
-        if is_exact_action {
-            if let Some(txns) = amap.get(fn_name) {
-                let from_states: Vec<&str> = txns.iter().map(|(f, _)| *f).collect();
-                let to_states: Vec<&str> = txns.iter().map(|(_, t)| *t).collect();
-
-                if !from_states.iter().any(|s| body_text.contains(*s)) && from_states.len() == 1 {
-                    diags.push(CheckDiagnostic {
-                        range: Range {
-                            start: Position {
-                                line: name_node.start_position().row as u32,
-                                character: name_node.start_position().column as u32,
-                            },
-                            end: Position {
-                                line: name_node.end_position().row as u32,
-                                character: name_node.end_position().column as u32,
-                            },
-                        },
-                        message: format!(
-                            "[State Graph] `{}` should transition from `{}` but body does not reference that state",
-                            fn_name, from_states[0],
-                        ),
-                        severity: DiagnosticSeverity::HINT,
-                        source: "praetor/state-graph".into(),
-                    });
-                }
-
-                if !to_states.iter().any(|s| body_text.contains(*s)) && to_states.len() == 1 {
-                    diags.push(CheckDiagnostic {
-                        range: Range {
-                            start: Position {
-                                line: name_node.start_position().row as u32,
-                                character: name_node.start_position().column as u32,
-                            },
-                            end: Position {
-                                line: name_node.end_position().row as u32,
-                                character: name_node.end_position().column as u32,
-                            },
-                        },
-                        message: format!(
-                            "[State Graph] `{}` should transition to `{}` but body does not reference that state",
-                            fn_name, to_states[0],
-                        ),
-                        severity: DiagnosticSeverity::HINT,
-                        source: "praetor/state-graph".into(),
-                    });
-                }
-            }
+        if known_actions.contains(fn_name) {
+            check_exact_action(&mut diags, fn_name, &body_text, &nrange, &amap);
         } else {
-            // Substring action match: check target states
-            if let Some(matching_action) = known_actions.iter().find(|a| fn_name.contains(*a)) {
-                if let Some(valid_transitions) = amap.get(matching_action) {
-                    let valid_targets: Vec<&str> = valid_transitions
-                        .iter()
-                        .map(|(_, to)| *to)
-                        .collect();
-
-                    if !valid_targets.iter().any(|target| body_text.contains(*target)) {
-                        diags.push(CheckDiagnostic {
-                            range: Range {
-                                start: Position {
-                                    line: name_node.start_position().row as u32,
-                                    character: name_node.start_position().column as u32,
-                                },
-                                end: Position {
-                                    line: name_node.end_position().row as u32,
-                                    character: name_node.end_position().column as u32,
-                                },
-                            },
-                            message: format!(
-                                "[State Graph] `{}` does not transition to any declared target state ({})",
-                                fn_name, valid_targets.join(", "),
-                            ),
-                            severity: DiagnosticSeverity::WARNING,
-                            source: "praetor/state-graph".into(),
-                        });
-                    }
-                }
-            }
+            check_substring_action(&mut diags, fn_name, &body_text, &nrange, &known_actions, &amap);
         }
     }
-
     diags
+}
+
+fn is_related_to_graph(fn_name: &str, known_actions: &HashSet<&str>, known_states: &HashSet<&str>) -> bool {
+    if known_actions.contains(fn_name) {
+        return true;
+    }
+    known_actions.iter().any(|a| fn_name.contains(a))
+        || known_states.iter().any(|s| fn_name.contains(s))
+}
+
+fn node_range(name_node: tree_sitter::Node) -> Range {
+    Range {
+        start: Position {
+            line: name_node.start_position().row as u32,
+            character: name_node.start_position().column as u32,
+        },
+        end: Position {
+            line: name_node.end_position().row as u32,
+            character: name_node.end_position().column as u32,
+        },
+    }
+}
+
+fn check_exact_action(
+    diags: &mut Vec<CheckDiagnostic>,
+    fn_name: &str,
+    body_text: &str,
+    nrange: &Range,
+    amap: &HashMap<&str, Vec<(&str, &str)>>,
+) {
+    let Some(txns) = amap.get(fn_name) else { return };
+    let from_states: Vec<&str> = txns.iter().map(|(f, _)| *f).collect();
+    let to_states: Vec<&str> = txns.iter().map(|(_, t)| *t).collect();
+
+    if !from_states.iter().any(|s| body_text.contains(*s)) && from_states.len() == 1 {
+        diags.push(transition_diag(
+            nrange,
+            &format!("`{}` should transition from `{}` but body does not reference that state", fn_name, from_states[0]),
+            DiagnosticSeverity::HINT,
+        ));
+    }
+    if !to_states.iter().any(|s| body_text.contains(*s)) && to_states.len() == 1 {
+        diags.push(transition_diag(
+            nrange,
+            &format!("`{}` should transition to `{}` but body does not reference that state", fn_name, to_states[0]),
+            DiagnosticSeverity::HINT,
+        ));
+    }
+}
+
+fn check_substring_action(
+    diags: &mut Vec<CheckDiagnostic>,
+    fn_name: &str,
+    body_text: &str,
+    nrange: &Range,
+    known_actions: &HashSet<&str>,
+    amap: &HashMap<&str, Vec<(&str, &str)>>,
+) {
+    let Some(matching_action) = known_actions.iter().find(|a| fn_name.contains(*a)) else { return };
+    let Some(valid_transitions) = amap.get(matching_action) else { return };
+    let valid_targets: Vec<&str> = valid_transitions.iter().map(|(_, to)| *to).collect();
+
+    if !valid_targets.iter().any(|target| body_text.contains(*target)) {
+        diags.push(transition_diag(
+            nrange,
+            &format!("`{}` does not transition to any declared target state ({})", fn_name, valid_targets.join(", ")),
+            DiagnosticSeverity::WARNING,
+        ));
+    }
+}
+
+fn transition_diag(range: &Range, message: &str, severity: DiagnosticSeverity) -> CheckDiagnostic {
+    CheckDiagnostic {
+        range: *range,
+        message: format!("[State Graph] {}", message),
+        severity,
+        source: "praetor/state-graph".into(),
+    }
 }

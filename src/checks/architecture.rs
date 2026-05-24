@@ -31,145 +31,155 @@ const GOD_METHOD_THRESHOLD: u32 = 15;
 const GOD_FIELD_THRESHOLD: u32 = 10;
 
 pub fn check_architecture(parsed: &ParsedFile) -> Vec<CheckDiagnostic> {
-    let mut diags = Vec::new();
     let source = parsed.text;
     let root = parsed.tree.root_node();
+    let mut diags = Vec::new();
 
     let mut cursor = root.walk();
     for child in root.children(&mut cursor) {
-        let kind = child.kind();
-
-        // Detect classes
-        if !CLASS_TYPES.contains(&kind) {
+        if !CLASS_TYPES.contains(&child.kind()) {
             continue;
         }
-
-        // Get class name
-        let class_name = find_child_by_path(child, &["identifier"])
-            .map(|n| node_text(n, source))
-            .unwrap_or_default();
-
-        if class_name.is_empty() {
+        let Some(metrics) = analyze_class(child, source) else {
             continue;
-        }
-
-        let class_start = child.start_position();
-        let class_range = Range {
-            start: Position {
-                line: class_start.row as u32,
-                character: class_start.column as u32,
-            },
-            end: Position {
-                line: child.end_position().row as u32,
-                character: child.end_position().column as u32,
-            },
         };
-
-        // Count methods and fields
-        let mut method_count = 0u32;
-        let mut non_init_methods = 0u32;
-        let mut field_count = 0u32;
-        let mut body_node = child;
-
-        // Try to find the class body
-        for body_kind in &["body", "class_body", "declaration_list", "block"] {
-            if let Some(body) = find_child_by_path(child, &[body_kind]) {
-                body_node = body;
-                break;
-            }
-        }
-
-        let mut bc = body_node.walk();
-        for member in body_node.children(&mut bc) {
-            let mk = member.kind();
-            if METHOD_TYPES.contains(&mk) {
-                method_count += 1;
-                let method_name = find_child_by_path(member, &["identifier"])
-                    .map(|n| node_text(n, source))
-                    .unwrap_or("");
-                if !method_name.is_empty() && method_name != "__init__" && !method_name.starts_with("__") {
-                    non_init_methods += 1;
-                }
-            } else if !is_punctuation(mk) {
-                // Count anything non-trivial as a potential field/member
-                // Exclude docstrings and blank lines
-                let is_docstring = mk == "expression_statement"
-                    && member.named_child_count() == 1
-                    && member.child(0).map(|c| c.kind()).unwrap_or("") == "string";
-                if member.start_position().row != member.end_position().row
-                    || member.end_position().column - member.start_position().column > 2
-                {
-                    if !is_docstring {
-                        field_count += 1;
-                    }
-                }
-            }
-        }
-
-        // Detect inheritance depth
-        let inheritance_depth = count_inheritance_depth(&child);
-
-        // God class: too many methods
-        if method_count > GOD_METHOD_THRESHOLD {
-            diags.push(CheckDiagnostic {
-                range: class_range,
-                message: format!(
-                    "[Architecture] `{}` has {} methods — may violate the \
-                     Single Responsibility Principle (god object)",
-                    class_name, method_count,
-                ),
-                severity: DiagnosticSeverity::WARNING,
-                source: "praetor/architecture".into(),
-            });
-        }
-
-        // God class: too many fields
-        if field_count > GOD_FIELD_THRESHOLD {
-            diags.push(CheckDiagnostic {
-                range: class_range,
-                message: format!(
-                    "[Architecture] `{}` has {} fields — consider splitting \
-                     into smaller domain objects",
-                    class_name, field_count,
-                ),
-                severity: DiagnosticSeverity::WARNING,
-                source: "praetor/architecture".into(),
-            });
-        }
-
-        // Data class: fields but no non-initializer methods
-        if field_count > 2 && non_init_methods == 0 {
-            diags.push(CheckDiagnostic {
-                range: class_range,
-                message: format!(
-                    "[Architecture] `{}` has {} fields but no methods — \
-                     data class; consider adding behaviour",
-                    class_name, field_count,
-                ),
-                severity: DiagnosticSeverity::HINT,
-                source: "praetor/architecture".into(),
-            });
-        }
-
-        // Deep inheritance hierarchy
-        if inheritance_depth > 3 {
-            diags.push(CheckDiagnostic {
-                range: class_range,
-                message: format!(
-                    "[Architecture] `{}` has inheritance depth {} — deep \
-                     hierarchies violate the Liskov Substitution Principle",
-                    class_name, inheritance_depth,
-                ),
-                severity: DiagnosticSeverity::HINT,
-                source: "praetor/architecture".into(),
-            });
-        }
+        let rng = class_range(child);
+        let diagnostics = class_diagnostics(&metrics, &rng);
+        diags.extend(diagnostics);
     }
-
     diags
 }
 
-/// Count the depth of inheritance by following base-class references.
+struct ClassMetrics<'a> {
+    name: &'a str,
+    methods: u32,
+    non_init_methods: u32,
+    fields: u32,
+    inheritance_depth: u32,
+}
+
+fn analyze_class<'a>(class_node: Node<'a>, source: &'a [u8]) -> Option<ClassMetrics<'a>> {
+    let name = find_child_by_path(class_node, &["identifier"])
+        .map(|n| node_text(n, source)).unwrap_or_default();
+    if name.is_empty() {
+        return None;
+    }
+    let body = find_class_body(class_node);
+    let (methods, non_init_methods, fields) = count_body(body, source);
+    let inheritance_depth = count_inheritance_depth(&class_node);
+    Some(ClassMetrics { name, methods, non_init_methods, fields, inheritance_depth })
+}
+
+fn find_class_body(node: Node) -> Node {
+    for body_kind in &["body", "class_body", "declaration_list", "block"] {
+        if let Some(body) = find_child_by_path(node, &[body_kind]) {
+            return body;
+        }
+    }
+    node
+}
+
+fn count_body(body: Node, source: &[u8]) -> (u32, u32, u32) {
+    let mut methods = 0u32;
+    let mut non_init_methods = 0u32;
+    let mut fields = 0u32;
+    let mut bc = body.walk();
+    for member in body.children(&mut bc) {
+        let mk = member.kind();
+        if METHOD_TYPES.contains(&mk) {
+            methods += 1;
+            if is_meaningful_method(member, source) {
+                non_init_methods += 1;
+            }
+            continue;
+        }
+        if is_punctuation(mk) || is_docstring(member) {
+            continue;
+        }
+        if member.start_position().row != member.end_position().row
+            || member.end_position().column - member.start_position().column > 2
+        {
+            fields += 1;
+        }
+    }
+    (methods, non_init_methods, fields)
+}
+
+fn is_meaningful_method(member: Node, source: &[u8]) -> bool {
+    let method_name = find_child_by_path(member, &["identifier"])
+        .map(|n| node_text(n, source)).unwrap_or("");
+    if method_name.is_empty() { return false; }
+    if method_name == "__init__" { return false; }
+    !method_name.starts_with("__")
+}
+
+fn is_docstring(member: Node) -> bool {
+    member.kind() == "expression_statement"
+        && member.named_child_count() == 1
+        && member.child(0).map(|c| c.kind()).unwrap_or("") == "string"
+}
+
+fn class_range(node: Node) -> Range {
+    let start = node.start_position();
+    Range {
+        start: Position { line: start.row as u32, character: start.column as u32 },
+        end: Position { line: node.end_position().row as u32, character: node.end_position().column as u32 },
+    }
+}
+
+fn class_diagnostics(metrics: &ClassMetrics, rng: &Range) -> Vec<CheckDiagnostic> {
+    let mut diags = Vec::new();
+    if metrics.methods > GOD_METHOD_THRESHOLD {
+        diags.push(CheckDiagnostic {
+            range: *rng,
+            message: format!(
+                "[Architecture] `{}` has {} methods — may violate the \
+                 Single Responsibility Principle (god object)",
+                metrics.name, metrics.methods,
+            ),
+            severity: DiagnosticSeverity::WARNING,
+            source: "praetor/architecture".into(),
+        });
+    }
+    if metrics.fields > GOD_FIELD_THRESHOLD {
+        diags.push(CheckDiagnostic {
+            range: *rng,
+            message: format!(
+                "[Architecture] `{}` has {} fields — consider splitting \
+                 into smaller domain objects",
+                metrics.name, metrics.fields,
+            ),
+            severity: DiagnosticSeverity::WARNING,
+            source: "praetor/architecture".into(),
+        });
+    }
+    if metrics.fields > 2 && metrics.non_init_methods == 0 {
+        diags.push(CheckDiagnostic {
+            range: *rng,
+            message: format!(
+                "[Architecture] `{}` has {} fields but no methods — \
+                 data class; consider adding behaviour",
+                metrics.name, metrics.fields,
+            ),
+            severity: DiagnosticSeverity::HINT,
+            source: "praetor/architecture".into(),
+        });
+    }
+    if metrics.inheritance_depth > 3 {
+        diags.push(CheckDiagnostic {
+            range: *rng,
+            message: format!(
+                "[Architecture] `{}` has inheritance depth {} — deep \
+                 hierarchies violate the Liskov Substitution Principle",
+                metrics.name, metrics.inheritance_depth,
+            ),
+            severity: DiagnosticSeverity::HINT,
+            source: "praetor/architecture".into(),
+        });
+    }
+    diags
+}
+
 fn count_inheritance_depth(class_node: &Node) -> u32 {
     for ik in INHERITANCE_KINDS {
         if find_child_by_path(*class_node, &[ik]).is_some() {
