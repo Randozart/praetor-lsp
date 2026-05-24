@@ -7,6 +7,14 @@ use crate::ast::ParsedFile;
 use crate::checks::CheckDiagnostic;
 use crate::config::IntentConfig;
 
+struct IntentContext<'a> {
+    lang: &'a crate::ast::LanguageConfig,
+    source: &'a [u8],
+    severity: DiagnosticSeverity,
+    config: &'a IntentConfig,
+    diags: &'a mut Vec<CheckDiagnostic>,
+}
+
 pub fn check_intent(
     parsed: &ParsedFile,
     config: &IntentConfig,
@@ -17,57 +25,41 @@ pub fn check_intent(
         "hint" => DiagnosticSeverity::HINT,
         _ => DiagnosticSeverity::ERROR,
     };
-
-    walk_intent_check(
-        parsed.tree.root_node(),
-        parsed.config,
-        parsed.text,
-        sev,
+    let mut ctx = IntentContext {
+        lang: parsed.config,
+        source: parsed.text,
+        severity: sev,
         config,
-        &mut diags,
-    );
+        diags: &mut diags,
+    };
+
+    walk_intent_check(parsed.tree.root_node(), &mut ctx);
     diags
 }
 
-fn walk_intent_check<'a>(
-    node: Node<'a>,
-    lang: &crate::ast::LanguageConfig,
-    source: &'a [u8],
-    severity: DiagnosticSeverity,
-    config: &IntentConfig,
-    diags: &mut Vec<CheckDiagnostic>,
-) {
-    if lang.function_types.contains(&node.kind()) {
-        check_function_intent(node, lang, source, severity, config, diags);
+fn walk_intent_check<'a>(node: Node<'a>, ctx: &mut IntentContext<'a>) {
+    if ctx.lang.function_types.contains(&node.kind()) {
+        check_function_intent(node, ctx);
     }
     if node.child_count() > 0 {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            walk_intent_check(child, lang, source, severity, config, diags);
+            walk_intent_check(child, ctx);
         }
     }
 }
 
-fn check_function_intent(
-    fn_node: Node,
-    lang: &crate::ast::LanguageConfig,
-    source: &[u8],
-    severity: DiagnosticSeverity,
-    config: &IntentConfig,
-    diags: &mut Vec<CheckDiagnostic>,
-) {
-    let fn_name = find_child_by_path(fn_node, lang.function_name_path)
-        .map(|n| node_text(n, source)).unwrap_or("");
+fn check_function_intent(fn_node: Node, ctx: &mut IntentContext) {
+    let fn_name = find_child_by_path(fn_node, ctx.lang.function_name_path)
+        .map(|n| node_text(n, ctx.source)).unwrap_or("");
 
-    if is_exempt(fn_name, config) {
+    if is_exempt(fn_name, ctx.config) {
         return;
     }
-
-    let has_comment = previous_sibling(fn_node)
-        .is_some_and(|prev| lang.comment_types.contains(&prev.kind()));
-
-    if !has_comment {
-        push_intent_diag(fn_node, source, fn_name, severity, diags);
+    if !previous_sibling(fn_node)
+        .is_some_and(|prev| ctx.lang.comment_types.contains(&prev.kind()))
+    {
+        push_intent_diag(fn_node, ctx.source, fn_name, ctx.severity, ctx.diags);
     }
 }
 

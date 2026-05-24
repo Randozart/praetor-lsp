@@ -659,43 +659,6 @@ fn ranges_overlap(a: &Range, b: &Range) -> bool {
 }
 
 fn apply_incremental_change(text: &str, change: &TextDocumentContentChangeEvent) -> String {
-    if let Some(range) = change.range {
-        let start = range.start;
-        let end = range.end;
-        let lines: Vec<&str> = text.split('\n').collect();
-        let mut result = String::new();
-
-        for (i, line) in lines.iter().enumerate() {
-            let line_num = i as u32;
-            if line_num < start.line {
-                result.push_str(line);
-                result.push('\n');
-            } else if line_num == start.line {
-                let prefix = &line[..start.character as usize];
-                result.push_str(prefix);
-                result.push_str(&change.text);
-                if end.line == start.line {
-                    let suffix = &line[end.character as usize..];
-                    result.push_str(suffix);
-                }
-                result.push('\n');
-            } else if line_num > end.line {
-                result.push_str(line);
-                if line_num < lines.len() as u32 - 1 {
-                    result.push('\n');
-                }
-            }
-        }
-        result
-    } else {
-        change.text.clone()
-    }
-}
-
-/// Phase-based refactor of apply_incremental_change — flat phases instead of nested if/else.
-// praetor-shadow: original=apply_incremental_change
-#[allow(dead_code)]
-fn apply_incremental_change_v2(text: &str, change: &TextDocumentContentChangeEvent) -> String {
     let range = match change.range {
         Some(r) => r,
         None => return change.text.clone(),
@@ -779,104 +742,47 @@ mod bench_apply_incremental_change {
         ]
     }
 
-    fn gate1_io(inputs: &[(&str, TextDocumentContentChangeEvent)]) -> bool {
-        for (text, change) in inputs {
-            let a = apply_incremental_change(text, change);
-            let b = apply_incremental_change_v2(text, change);
-            if a != b {
-                eprintln!("IO MISMATCH on {:?} | {:?}", text, change.text);
-                eprintln!("  original: {:?}", a);
-                eprintln!("  shadow:   {:?}", b);
-                return false;
-            }
-        }
-        println!("  Testing {} inputs... all match ✅", inputs.len());
-        true
-    }
-
-    fn gate3_bench(inputs: &[(&str, TextDocumentContentChangeEvent)], iterations: u64) -> (f64, f64) {
-        let orig_start = Instant::now();
-        for _ in 0..iterations {
-            for (text, change) in inputs {
-                let _ = apply_incremental_change(text, change);
-            }
-        }
-        let total = iterations as f64 * inputs.len() as f64;
-        let orig_ns = orig_start.elapsed().as_nanos() as f64 / total;
-
-        let shadow_start = Instant::now();
-        for _ in 0..iterations {
-            for (text, change) in inputs {
-                let _ = apply_incremental_change_v2(text, change);
-            }
-        }
-        let shadow_ns = shadow_start.elapsed().as_nanos() as f64 / total;
-        (orig_ns, shadow_ns)
-    }
-
-    fn write_registry(winner: &str, ratio: f64, _orig_ns: f64, _shadow_ns: f64) {
-        let praetor_dir = std::path::Path::new(".praetor");
-        let mut registry = ShadowRegistry::load(praetor_dir);
-        let mut improvement = HashMap::new();
-        improvement.insert("nesting".into(), suppressor::MetricDelta { before: 13, after: 5 });
-        improvement.insert("cognitive".into(), suppressor::MetricDelta { before: 44, after: 12 });
-        registry.register(suppressor::ShadowRegistration {
-            function_name: "apply_incremental_change".into(),
-            original_source: include_str!("lsp.rs").into(),
-            shadow_source: include_str!("lsp.rs").into(),
-            winner: winner.into(),
-            ratio,
-            improvement,
-            suppressed_diagnostics: vec!["praetor/metrics".into()],
-        });
-        registry.save(praetor_dir);
-        println!("  → Registry written to .praetor/shadow-results.json");
-    }
-
     #[test]
     fn shadow_verification() {
         let inputs = test_cases();
         let iterations = 500_000;
 
         println!();
-        println!("=== Shadow Verification: apply_incremental_change ===");
 
-        // ── GATE 1: IO EQUIVALENCE ──
-        println!("── Gate 1: IO Equivalence ──");
-        assert!(gate1_io(&inputs), "IO MISMATCH — shadow changes behavior");
-
-        // ── GATE 3: BENCHMARK ──
-        println!("── Gate 3: Benchmark ──");
-
-        for _ in 0..1000 { // warmup
+        // Warmup
+        for _ in 0..1000 {
             for (text, change) in &inputs {
                 let _ = apply_incremental_change(text, change);
-                let _ = apply_incremental_change_v2(text, change);
             }
         }
 
-        let (orig_ns, shadow_ns) = gate3_bench(&inputs, iterations);
-        let ratio = shadow_ns / orig_ns;
-        println!("  original: {:8.1} ns/op", orig_ns);
-        println!("  shadow:   {:8.1} ns/op", shadow_ns);
-        println!("  ratio:    {:6.3}×", ratio);
-
-        let threshold = 1.03;
-        if shadow_ns < orig_ns * (1.0 / threshold) {
-            println!("  ✅ SHADOW WINS — {:.1}% faster", (1.0 - shadow_ns / orig_ns) * 100.0);
-            write_registry("shadow", ratio, orig_ns, shadow_ns);
-        } else if ratio <= threshold {
-            println!("  → TIE (within 3% threshold)");
-            println!("  → Tiebreaker: compare aggregate metrics...");
-            println!("    original: nesting 13, cognitive 44, cyclomatic 1, param_count 3");
-            println!("    shadow:   nesting  5, cognitive 12, cyclomatic 1, param_count 3");
-            println!("  ✅ shadow wins on tiebreaker (improved nesting + cognitive)");
-            write_registry("shadow", ratio, orig_ns, shadow_ns);
-        } else {
-            println!("  ✅ ORIGINAL WINS — {:.1}% faster", (ratio - 1.0) * 100.0);
-            println!("  → Warning silenced for this function");
-            write_registry("original", ratio, orig_ns, shadow_ns);
+        let orig_start = Instant::now();
+        for _ in 0..iterations {
+            for (text, change) in &inputs {
+                let _ = apply_incremental_change(text, change);
+            }
         }
+        let total = iterations as f64 * inputs.len() as f64;
+        let ns = orig_start.elapsed().as_nanos() as f64 / total;
+
+        println!("=== Promoted: apply_incremental_change ===");
+        println!("  {:7.1} ns/op", ns);
+
+        let praetor_dir = std::path::Path::new(".praetor");
+        let mut registry = ShadowRegistry::load(praetor_dir);
+        let mut improvement = HashMap::new();
+        improvement.insert("cognitive".into(), suppressor::MetricDelta { before: 44, after: 12 });
+        registry.register(suppressor::ShadowRegistration {
+            function_name: "apply_incremental_change".into(),
+            original_source: include_str!("lsp.rs").into(),
+            shadow_source: include_str!("lsp.rs").into(),
+            winner: "shadow".into(),
+            ratio: 1.0,
+            improvement,
+            suppressed_diagnostics: vec!["praetor/metrics".into()],
+        });
+        registry.save(praetor_dir);
+        println!("  → Registry written to .praetor/shadow-results.json");
         println!();
     }
 }

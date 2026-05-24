@@ -93,16 +93,19 @@ fn count_body(body: Node, source: &[u8]) -> (u32, u32, u32) {
             }
             continue;
         }
-        if is_punctuation(mk) || is_docstring(member) {
-            continue;
-        }
-        if member.start_position().row != member.end_position().row
-            || member.end_position().column - member.start_position().column > 2
-        {
+        if is_field_like(member, mk) {
             fields += 1;
         }
     }
     (methods, non_init_methods, fields)
+}
+
+fn is_field_like(member: Node, kind: &str) -> bool {
+    if is_punctuation(kind) || is_docstring(member) {
+        return false;
+    }
+    member.start_position().row != member.end_position().row
+        || member.end_position().column - member.start_position().column > 2
 }
 
 fn is_meaningful_method(member: Node, source: &[u8]) -> bool {

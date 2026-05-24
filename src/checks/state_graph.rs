@@ -152,19 +152,23 @@ fn check_exact_action(
     let from_states: Vec<&str> = txns.iter().map(|(f, _)| *f).collect();
     let to_states: Vec<&str> = txns.iter().map(|(_, t)| *t).collect();
 
-    if !from_states.iter().any(|s| body_text.contains(*s)) && from_states.len() == 1 {
-        diags.push(transition_diag(
-            nrange,
-            &format!("`{}` should transition from `{}` but body does not reference that state", fn_name, from_states[0]),
-            DiagnosticSeverity::HINT,
-        ));
+    push_from(diags, nrange, fn_name, &from_states, body_text);
+    push_to(diags, nrange, fn_name, &to_states, body_text);
+}
+
+fn push_from(diags: &mut Vec<CheckDiagnostic>, nrange: &Range, fn_name: &str, states: &[&str], body_text: &str) {
+    if states.len() == 1 && !states.iter().any(|s| body_text.contains(s)) {
+        diags.push(transition_diag(nrange,
+            &format!("`{}` should transition from `{}` but body does not reference that state", fn_name, states[0]),
+            DiagnosticSeverity::HINT));
     }
-    if !to_states.iter().any(|s| body_text.contains(*s)) && to_states.len() == 1 {
-        diags.push(transition_diag(
-            nrange,
-            &format!("`{}` should transition to `{}` but body does not reference that state", fn_name, to_states[0]),
-            DiagnosticSeverity::HINT,
-        ));
+}
+
+fn push_to(diags: &mut Vec<CheckDiagnostic>, nrange: &Range, fn_name: &str, states: &[&str], body_text: &str) {
+    if states.len() == 1 && !states.iter().any(|s| body_text.contains(s)) {
+        diags.push(transition_diag(nrange,
+            &format!("`{}` should transition to `{}` but body does not reference that state", fn_name, states[0]),
+            DiagnosticSeverity::HINT));
     }
 }
 
