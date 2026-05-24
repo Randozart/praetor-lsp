@@ -1,0 +1,35 @@
+[package]
+name = "praetor-lsp"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# LSP framework
+tower-lsp = "0.20"
+
+# Tree-sitter AST parsing
+tree-sitter = "0.25"
+tree-sitter-language = "0.1"
+tree-sitter-python = "0.25"
+tree-sitter-javascript = "0.25"
+tree-sitter-go = "0.25"
+tree-sitter-c = "0.24"
+tree-sitter-cpp = "0.23"
+tree-sitter-rust = "0.24"
+tree-sitter-java = "0.23"
+tree-sitter-typescript = "0.23"
+
+# Config parsing
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+
+# Async runtime
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std", "io-util"] }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Regex for exempt patterns
+regex = "1"

@@ -1,0 +1,31 @@
+# Rust build artifacts
+target/
+Cargo.lock
+
+# Downloaded external binaries managed by praetor-lsp itself
+lib/*.jar
+lib/*.tar.gz
+lib/*.zip
+
+# Python bytecode
+__pycache__/
+*.pyc
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Praetor auto-download cache (created per-system, not committed)
+.praetor-cache/
+
+
+# Added by cargo
+
+/target
