@@ -38,11 +38,21 @@ impl Report {
     }
 
     fn praetor_dir(&self) -> Option<std::path::PathBuf> {
-        self.config.as_ref().and_then(|cfg| {
-            cfg.path.as_ref().and_then(|p| {
-                p.parent().map(|dir| dir.join(".praetor"))
-            })
-        })
+        // Check config-derived path first
+        if let Some(dir) = self.config.as_ref().and_then(|cfg| {
+            cfg.path.as_ref().and_then(|p| p.parent().map(|dir| dir.join(".praetor")))
+        }) {
+            if dir.is_dir() {
+                return Some(dir);
+            }
+        }
+        // Fallback: check CWD/.praetor/
+        let cwd_dir = std::env::current_dir().ok()?.join(".praetor");
+        if cwd_dir.is_dir() {
+            Some(cwd_dir)
+        } else {
+            None
+        }
     }
 
     fn analyze_project(&self, target: &str) -> ProjectAnalysis {
@@ -99,7 +109,15 @@ impl Report {
             };
 
             if let Some(parsed) = self.engine.parse(&ext, &source) {
-                let results = CheckPipeline::run(&parsed, &self.engine, &cfg, self.praetor_dir().as_deref());
+                let mut results = CheckPipeline::run(&parsed, &self.engine, &cfg, self.praetor_dir().as_deref());
+
+                // Suppress diagnostics proven by shadow verification
+                if let Some(dir) = self.praetor_dir() {
+                    let registry = crate::suppressor::ShadowRegistry::load(&dir);
+                    if !registry.entries.is_empty() {
+                        results = crate::suppressor::suppress_in_file(results, &registry, parsed.config, parsed.tree.root_node(), parsed.text);
+                    }
+                }
 
                 let fn_count = count_functions(&parsed.tree.root_node(), parsed.config) as u64;
                 analysis.total_functions += fn_count;

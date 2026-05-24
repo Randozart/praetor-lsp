@@ -25,9 +25,6 @@ Thumbs.db
 # Praetor auto-download cache (created per-system, not committed)
 .praetor-cache/
 
-# Generated benchmark scaffolds
-src/__praetor_bench_*.rs
-
 
 # Added by cargo
 

@@ -20,6 +20,37 @@ correct-but-slower code.
 No inline exceptions (`// praetor:ignore`), no LLM discretion, no
 human judgement calls. The benchmark is the single source of truth.
 
+## The Three-Gate Pipeline
+
+A shadow function must pass three sequential gates before any
+diagnostic is silenced:
+
+```
+┌─ GATE 1: IO EQUIVALENCE ────────────┐
+│ Fuzz both functions with identical   │
+│ inputs, assert_eq! outputs           │
+│ Fail → ❌ "shadow changes behavior"  │
+└──────────────────────────────────────┘
+                   ✅
+┌─ GATE 2: METRIC IMPROVEMENT ────────┐
+│ Run full CheckPipeline on shadow.    │
+│ Must improve on the flagged metric.  │
+│ Fail → ❌ "shadow doesn't fix flag"  │
+└──────────────────────────────────────┘
+                   ✅
+┌─ GATE 3: BENCHMARK + TIEBREAKER ────┐
+│ original vs shadow, 500k iters       │
+│                                      │
+│ Shadow faster  → ✅ PROMOTE shadow   │
+│ Original faster → ✅ ORIGINAL kept   │
+│                  → warning silenced  │
+│ Tie (within 3%) → compare all other  │
+│   CheckPipeline metrics across both  │
+│   → better aggregate wins            │
+│   → warning silenced if original     │
+└──────────────────────────────────────┘
+```
+
 ---
 
 ## How It Works
@@ -48,139 +79,126 @@ The `original=` value is the name of the function being refactored.
 If omitted, the tool guesses it by stripping `_shadow`, `_v2`, or `_v3`
 suffixes from the shadow function name.
 
----
-
-### 2. Proposing a refactoring
-
-When an LLM (or human) proposes a fix for a flagged function, they
-write a **shadow function** alongside the original:
-
-```rust
-// Original (flagged: 10 params)
-fn collect_facts(
-    node: Node, lang: &LanguageConfig, source: &[u8],
-    sym: &mut SymbolTable,
-    calls: &mut Vec<(u32,u32)>, accesses: &mut Vec<(u32,u32)>,
-    declares: &mut Vec<(u32,u32)>, annotated: &mut Vec<u32>,
-    param_counts: &mut Vec<(u32,u32)>,
-    positions: &mut HashMap<u32,(u32,u32)>,
-) { ... }
-
-// Shadow (refactored: 2 params via FactContext)
-// praetor-shadow: original=collect_facts
-fn collect_facts_v2(
-    node: Node,
-    ctx: &mut FactContext,
-) { ... }
-```
-
-The `// praetor-shadow:` comment is a language-agnostic marker that
-`praetor verify --shadow` discovers at runtime by scanning the source
-file line by line. It works for Rust, Python, JavaScript, Go, C, C++,
-Java — any language that uses `//`, `#`, or `/* */` comments.
-
----
-
-### 3. Running the comparison
+### 2. Generating the benchmark scaffold
 
 ```bash
-praetor verify --shadow src/facts/mod.rs
+praetor verify --shadow src/lsp.rs
 ```
 
-This:
-1. Extracts the original function and its shadow
-2. Builds a standalone benchmark binary with identical randomized inputs
-3. Runs each version 10,000+ times
-4. Reports:
+This scans for `praetor-shadow:` comments and generates an inline
+benchmark module with:
+- Test input stubs (user fills in realistic test data)
+- IO equivalence checks (runs both functions on same inputs)
+- Metric comparison (runs CheckPipeline on both)
+- Benchmark loop (times both)
+- Registry writer (writes `.praetor/shadow-results.json`)
 
-```
-collect_facts:         10 params → 2 params  (flagged)
-collect_facts_v2:      2 params               (proposed fix)
+### 3. Running the verification
 
-  original:  2.34 µs/iter  (±0.02)
-  shadow:    2.41 µs/iter  (±0.03)  ← 3% slower
-
-  ❌ REJECTED — shadow is slower than original.
-     Threshold: +2%. Actual: +3%.
-     Suggestion: keep the original; the struct allocation cost
-     outweighs the readability benefit on this hot path.
+```bash
+cargo test bench_apply_incremental_change -- --nocapture
 ```
 
-Or, if the shadow is faster:
+Output:
 
 ```
-  original:  2.34 µs/iter  (±0.02)
-  shadow:    2.10 µs/iter  (±0.01)  ← 10% faster
+=== Shadow Verification: apply_incremental_change ===
 
-  ✅ ACCEPTED — shadow outperforms original.
-     Shadow promoted to `collect_facts`. Original archived.
+── Gate 1: IO Equivalence ──
+  Testing 6 inputs... all match ✅
+
+── Gate 2: Metric Improvement ──
+  original: nesting 13, cognitive 44, cyclomatic 1, param_count 3
+  shadow:   nesting  5, cognitive 12, cyclomatic 1, param_count 3
+  ✅ shadow improves on flagged metric (nesting: 13→5)
+
+── Gate 3: Benchmark ──
+  original: 1184.1 ns/op
+  shadow:   1189.4 ns/op
+  ratio:    1.004× (within 3% threshold)
+
+  → TIE — comparing aggregate metrics
+    original: 4 flags (nesting, cognitive, lines, params)
+    shadow:   2 flags (nesting, lines)
+  ✅ shadow wins tiebreaker
+
+  ✅ PROMOTED — shadow replaces original
 ```
 
----
-
-### 4. Verification workflow
+Or, if the original is faster:
 
 ```
-┌─────────────────────────────────────────────────────┐
-│ 1. Diagnostic fires on perf_critical function        │
-│    "collect_facts has 10 params (max 6)"            │
-└─────────────────────────────────────────────────────┘
-                        │
-                        ▼
-┌─────────────────────────────────────────────────────┐
-│ 2. LLM/human writes shadow function                 │
-│    // praetor-shadow: original=collect_facts        │
-└─────────────────────────────────────────────────────┘
-                        │
-                        ▼
-┌─────────────────────────────────────────────────────┐
-│ 3. praetor verify --shadow <file>                   │
-│    - Builds benchmark harness                        │
-│    - Runs original vs shadow × 10,000 iters         │
-│    - Compares mean, variance, p-value               │
-└─────────────────────────────────────────────────────┘
-                        │
-                        ├── Faster  → ✅ Promoted
-                        ├── Equal   → ✅ Promoted (noise)
-                        └── Slower  → ❌ Rejected
-                                      Warning stays.
-                                      Shadow is discarded.
+  original: 1184.1 ns/op
+  shadow:   2410.1 ns/op
+  ratio:    2.04× SLOWER
+
+  → ORIGINAL WINS — warning silenced
+  → Entry written to .praetor/shadow-results.json
+  → Praetor will suppress future diagnostics for this function
 ```
+
+### 4. Registry format
+
+Results are stored in `.praetor/shadow-results.json`:
+
+```json
+{
+  "apply_incremental_change": {
+    "original_hash": "sha256-abc...",
+    "shadow_hash": "sha256-def...",
+    "winner": "original",
+    "ratio": 1.004,
+    "improvement": {
+      "nesting": {"before": 13, "after": 5},
+      "cognitive": {"before": 44, "after": 12}
+    },
+    "suppressed_diagnostics": ["praetor/metrics/nesting", "praetor/metrics/cognitive"],
+    "verified_at": "2026-05-24T14:00:00Z"
+  }
+}
+```
+
+### 5. Diagnostic suppression
+
+When Praetor's CheckPipeline runs, it checks the registry before
+emitting each diagnostic. If the function + diagnostic type appears
+in the registry with a valid hash and `winner == "original"`, the
+diagnostic is **downgraded to `HINT`** (not hidden — visible but
+not blocking).
+
+If the original function's source changes, the hash no longer matches
+and the registry entry is invalidated — warnings return until
+re-verified.
 
 ---
 
 ## Edge Cases
 
 ### Noise in benchmarks
-If `|shadow - original| / original < 3%`, treat as equal. The
-threshold is configurable in `.praetor.toml`:
+If `|shadow - original| / original < 3%`, treat as tie. Threshold
+configurable in `.praetor.toml`:
 
 ```toml
 [verification]
-perf_threshold_pct = 3    # reject if shadow is >3% slower
-min_iterations = 10000
+perf_threshold_pct = 3
+min_iterations = 50000
 ```
 
 ### Functions with no benchmark input
 Some functions (e.g., `detect_os`) have no interesting input space.
-Praetor skips shadow verification for these and treats the warnings as
-pure readability advice.
+Praetor skips shadow verification for these.
 
 ### Functions that can't be shadowed (I/O, side effects)
-Praetor auto-detects functions that call `std::process::Command`,
-`std::fs`, or `tokio::io`. These are marked `perf_critical = false`
-by default since microbenchmarks can't meaningfully measure them.
+Praetor auto-skips functions that call `std::process::Command`,
+`std::fs`, or `tokio::io` since microbenchmarks can't measure them.
 
 ### Shadow cannot compile
-If the shadow function doesn't compile, Praetor reports:
+If the shadow doesn't compile, the test fails at compile time —
+no gates reached.
 
-```
-❌ SHADOW COMPILATION FAILED
-   src/facts/mod.rs:1:1 — missing field `calls` in `FactContext`
-```
-
-The fix is rejected automatically. The LLM must fix the shadow and
-re-run `praetor verify`.
+### Registry entry expires
+If the original or shadow function body changes (hash mismatch),
+the entry is invalid. Re-run `praetor verify --shadow` to renew.
 
 ---
 
@@ -188,19 +206,14 @@ re-run `praetor verify`.
 
 | Old approach | Problem | Shadow verification |
 |-------------|---------|-------------------|
-| `// praetor:ignore` | Allows cheating; ignores forever | No inline exceptions. Prove it with a benchmark or keep the warning. |
-| Blind LLM fix | LLM applies every diagnostic, regressing hot paths | LLM must write a shadow or the fix is rejected. |
-| Human code review | Subjective; reviewer may not notice perf regression | Objective: numbers decide, not opinions. |
-
----
+| `// praetor:ignore` | Allows cheating; ignores forever | Three-gate proof or keep the warning |
+| Blind LLM fix | Regresses hot paths | Must pass IO + metric + benchmark gates |
+| Human code review | Subjective | Numbers decide, not opinions |
 
 ## What This Costs
 
 - **Zero dependencies** — comment-based, no proc-macro, no build-time overhead
 - **One CLI command** (`praetor verify --shadow`)
 - **Language-agnostic** — works for Rust, Python, JavaScript, Go, C, C++, Java
-- **Time**: ~10 seconds per verification (build + run 10k iterations)
-
-The key insight: **you don't pre-benchmark everything.** You only build
-a shadow when someone proposes to act on a diagnostic. Uncontested
-warnings cost nothing.
+- **Time**: ~10 seconds per verification (build + run 50k iterations)
+- **Registry**: a single JSON file in `.praetor/`

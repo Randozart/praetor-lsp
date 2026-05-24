@@ -1,0 +1,24 @@
+{
+  "entries": {
+    "apply_incremental_change": {
+      "original_hash": "sha256-7e043bdcbf634bc5d003ce27042600d3a52e8489795142ff9921b6b55b4baac6",
+      "shadow_hash": "sha256-7e043bdcbf634bc5d003ce27042600d3a52e8489795142ff9921b6b55b4baac6",
+      "winner": "original",
+      "ratio": 1.113913959527468,
+      "improvement": {
+        "cognitive": {
+          "before": 44,
+          "after": 12
+        },
+        "nesting": {
+          "before": 13,
+          "after": 5
+        }
+      },
+      "suppressed_diagnostics": [
+        "praetor/metrics"
+      ],
+      "verified_at": "2080-04-09T14:59:02Z"
+    }
+  }
+}

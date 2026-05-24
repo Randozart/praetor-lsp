@@ -42,3 +42,6 @@ crepe = "0.2"
 
 # Project report generation
 walkdir = "2"
+
+# Shadow verification registry hashing
+sha2 = "0.10"

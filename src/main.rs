@@ -12,6 +12,7 @@ mod downloader;
 mod facts;
 mod lsp;
 mod report;
+mod suppressor;
 mod verify;
 
 #[derive(Parser)]
