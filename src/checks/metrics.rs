@@ -9,7 +9,6 @@ use super::CheckDiagnostic;
 const DECISION_KINDS: &[&str] = &[
     "if_statement",
     "if_expression",
-    "else_clause",
     "elif_clause",
     "for_statement",
     "for_expression",

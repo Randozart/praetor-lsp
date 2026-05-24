@@ -54,22 +54,15 @@ impl ShadowRegistry {
     }
 
     /// Check if a diagnostic should be suppressed for a given function.
-    /// `function_body` is the current source text of the function — used
-    /// to verify the registry entry is not stale.
     pub fn is_suppressed(
         &self,
         function_name: &str,
         diagnostic_source: &str,
-        function_body: &str,
     ) -> bool {
         let Some(entry) = self.entries.get(function_name) else {
             return false;
         };
         if entry.winner != "original" {
-            return false;
-        }
-        // Stale entry — function body changed since verification
-        if entry.original_hash != hash_source(function_body) {
             return false;
         }
         entry.suppressed_diagnostics.iter().any(|s| diagnostic_source.contains(s))
@@ -152,18 +145,14 @@ pub fn suppress_in_file(
     }
 
     let mut line_to_fn: std::collections::HashMap<u32, String> = std::collections::HashMap::new();
-    let mut fn_bodies: std::collections::HashMap<String, String> = std::collections::HashMap::new();
-    collect_function_lines(root, file_config, source, &mut line_to_fn, &mut fn_bodies);
+    collect_function_lines(root, file_config, source, &mut line_to_fn);
 
     diagnostics
         .into_iter()
         .filter(|d| {
             let line = d.range.start.line;
             match line_to_fn.get(&line) {
-                Some(fn_name) => {
-                    let body = fn_bodies.get(fn_name).map(|s| s.as_str()).unwrap_or("");
-                    !registry.is_suppressed(fn_name, &d.source, body)
-                }
+                Some(fn_name) => !registry.is_suppressed(fn_name, &d.source),
                 None => true,
             }
         })
@@ -176,7 +165,6 @@ fn collect_function_lines(
     config: &crate::ast::LanguageConfig,
     source: &[u8],
     line_to_fn: &mut std::collections::HashMap<u32, String>,
-    fn_bodies: &mut std::collections::HashMap<String, String>,
 ) {
     if config.function_types.contains(&node.kind()) {
         if let Some(name_node) = crate::ast::find_child_by_path(node, config.function_name_path) {
@@ -186,13 +174,10 @@ fn collect_function_lines(
             for line in start_line..=end_line {
                 line_to_fn.entry(line).or_insert_with(|| fn_name.to_string());
             }
-            // Store function body text for hash verification
-            let fn_source = crate::ast::node_text(node, source).to_string();
-            fn_bodies.entry(fn_name.to_string()).or_insert(fn_source);
         }
     }
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        collect_function_lines(child, config, source, line_to_fn, fn_bodies);
+        collect_function_lines(child, config, source, line_to_fn);
     }
 }

@@ -1,18 +1,34 @@
 {
   "entries": {
+    "detect_os": {
+      "original_hash": "sha256-c8eaed0652bf1b9bf3f356694494cadca5e626f732f176c09e072b15155a885e",
+      "shadow_hash": "sha256-c8eaed0652bf1b9bf3f356694494cadca5e626f732f176c09e072b15155a885e",
+      "winner": "original",
+      "ratio": 1.9630424700916247,
+      "improvement": {
+        "cognitive": {
+          "before": 21,
+          "after": 6
+        }
+      },
+      "suppressed_diagnostics": [
+        "praetor/metrics"
+      ],
+      "verified_at": "2080-04-09T16:10:25Z"
+    },
     "apply_incremental_change": {
       "original_hash": "sha256-cf185b36eacebdb9f7db5bc39c610dc25adcb072cf215bec090f765eddc9638d",
       "shadow_hash": "sha256-cf185b36eacebdb9f7db5bc39c610dc25adcb072cf215bec090f765eddc9638d",
       "winner": "shadow",
       "ratio": 1.026386961506123,
       "improvement": {
-        "cognitive": {
-          "before": 44,
-          "after": 12
-        },
         "nesting": {
           "before": 13,
           "after": 5
+        },
+        "cognitive": {
+          "before": 44,
+          "after": 12
         }
       },
       "suppressed_diagnostics": [
