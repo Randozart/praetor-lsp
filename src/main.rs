@@ -10,9 +10,11 @@ mod checks;
 mod config;
 mod downloader;
 mod facts;
+mod init;
 mod lsp;
 mod report;
 mod suppressor;
+mod validate;
 mod verify;
 
 #[derive(Parser)]
@@ -59,6 +61,24 @@ enum Commands {
         #[arg(long, default_value = "10000")]
         iterations: u64,
     },
+    /// Initialize Praetor in the current project
+    Init {
+        /// Overwrite existing files without prompting
+        #[arg(long)]
+        force: bool,
+    },
+    /// Validate project — exit 1 if unproven diagnostics exist
+    Validate {
+        /// Target directory to analyze
+        #[arg(long, default_value = ".")]
+        target: String,
+        /// Only ERROR-level diagnostics cause failure (allow WARNING)
+        #[arg(long)]
+        warn: bool,
+        /// Output results as JSON
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[tokio::main]
@@ -85,6 +105,12 @@ async fn main() {
         }
         Some(Commands::Verify { file, shadow, original, threshold, iterations }) => {
             verify::run_shadow_verify(&file, shadow.as_deref(), original.as_deref(), threshold, iterations);
+        }
+        Some(Commands::Init { force }) => {
+            init::run_init(force);
+        }
+        Some(Commands::Validate { target, warn, json }) => {
+            validate::run_validate(&target, warn, json);
         }
         _ => run_lsp().await,
     }

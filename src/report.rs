@@ -55,7 +55,7 @@ impl Report {
         }
     }
 
-    fn analyze_project(&self, target: &str) -> ProjectAnalysis {
+    pub fn analyze_project(&self, target: &str) -> ProjectAnalysis {
         let mut analysis = ProjectAnalysis {
             root: target.to_string(),
             total_files: 0,
@@ -76,6 +76,14 @@ impl Report {
 
         for entry in walkdir::WalkDir::new(dir)
             .into_iter()
+            .filter_entry(|e| {
+                let name = e.file_name().to_string_lossy();
+                // Skip common build artifacts and vendored dirs
+                !matches!(name.as_ref(),
+                    "target" | ".git" | "node_modules" | ".venv" | "venv"
+                    | "__pycache__" | ".next" | "dist" | "build"
+                )
+            })
             .filter_map(|e| e.ok())
             .filter(|e| e.file_type().is_file())
         {
@@ -235,21 +243,21 @@ impl Report {
     }
 }
 
-struct ProjectAnalysis {
-    root: String,
-    total_files: u64,
-    total_lines: u64,
-    total_functions: u64,
-    languages: HashMap<String, LangStats>,
-    diagnostics: Vec<(String, usize)>,
-    file_results: Vec<FileResult>,
+pub struct ProjectAnalysis {
+    pub root: String,
+    pub total_files: u64,
+    pub total_lines: u64,
+    pub total_functions: u64,
+    pub languages: HashMap<String, LangStats>,
+    pub diagnostics: Vec<(String, usize)>,
+    pub file_results: Vec<FileResult>,
 }
 
 #[derive(Default)]
-struct LangStats {
-    files: u64,
-    lines: u64,
-    functions: u64,
+pub struct LangStats {
+    pub files: u64,
+    pub lines: u64,
+    pub functions: u64,
 }
 
 impl std::ops::AddAssign for LangStats {
@@ -261,11 +269,11 @@ impl std::ops::AddAssign for LangStats {
 }
 
 #[allow(dead_code)]
-struct FileResult {
-    path: String,
-    lines: u64,
-    functions: u32,
-    diagnostics: Vec<CheckDiagnostic>,
+pub struct FileResult {
+    pub path: String,
+    pub lines: u64,
+    pub functions: u32,
+    pub diagnostics: Vec<CheckDiagnostic>,
 }
 
 fn count_functions(node: &tree_sitter::Node, config: &crate::ast::LanguageConfig) -> u32 {
