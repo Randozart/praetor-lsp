@@ -1,9 +1,12 @@
 [package]
-name = "praetor-lsp"
+name = "praetor"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+# CLI argument parsing
+clap = { version = "4", features = ["derive"] }
+
 # LSP framework
 tower-lsp = "0.20"
 
@@ -33,3 +36,9 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Regex for exempt patterns
 regex = "1"
+
+# Datalog engine (quadruple bookkeeping)
+crepe = "0.2"
+
+# Project report generation
+walkdir = "2"

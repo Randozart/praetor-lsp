@@ -1,4 +1,5 @@
 pub mod complexity;
+pub mod facts;
 pub mod intent;
 
 use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity, Range};
@@ -51,6 +52,9 @@ impl CheckPipeline {
                 &config.intent,
             ));
         }
+
+        // Datalog facts check (always runs — built-in rules)
+        results.extend(facts::check_facts(parsed));
 
         results
     }

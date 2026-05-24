@@ -73,6 +73,80 @@ impl Backend {
         }).collect()
     }
 
+    fn compute_code_lenses(&self, uri: &str, text: &str) -> Vec<CodeLens> {
+        let ext = extension_from_uri(uri);
+        if ext.is_empty() || !self.engine.supports_extension(ext) {
+            return vec![];
+        }
+
+        let cfg = self.config.as_ref().cloned().unwrap_or_default();
+        let parsed = match self.engine.parse(ext, text.as_bytes()) {
+            Some(p) => p,
+            None => return vec![],
+        };
+
+        let results = CheckPipeline::run(&parsed, &self.engine, &cfg);
+
+        // Collect all function nodes with their ranges
+        let mut funcs: Vec<(Range, String)> = Vec::new();
+        let mut cursor = parsed.tree.root_node().walk();
+        collect_functions(
+            parsed.tree.root_node(),
+            parsed.config,
+            &mut funcs,
+            &mut cursor,
+        );
+
+        let mut lenses = Vec::new();
+
+        for (fn_range, _fn_name) in &funcs {
+            let fn_diags: Vec<_> = results
+                .iter()
+                .filter(|d| ranges_overlap(&d.range, fn_range))
+                .collect();
+
+            let (symbol, status) = if fn_diags.is_empty() {
+                ("✅", "verified".to_string())
+            } else {
+                let mut parts = Vec::new();
+                let errors = fn_diags.iter().filter(|d| {
+                    d.severity == tower_lsp::lsp_types::DiagnosticSeverity::ERROR
+                }).count();
+                let warnings = fn_diags.iter().filter(|d| {
+                    d.severity == tower_lsp::lsp_types::DiagnosticSeverity::WARNING
+                }).count();
+                let hints = fn_diags.iter().filter(|d| {
+                    d.severity == tower_lsp::lsp_types::DiagnosticSeverity::HINT
+                }).count();
+
+                if errors > 0 {
+                    parts.push(format!("{} error(s)", errors));
+                }
+                if warnings > 0 {
+                    parts.push(format!("{} warning(s)", warnings));
+                }
+                if hints > 0 {
+                    parts.push(format!("{} hint(s)", hints));
+                }
+
+                let icon = if errors > 0 { "⛔" } else if warnings > 0 { "⚠️" } else { "💡" };
+                (icon, parts.join(", "))
+            };
+
+            lenses.push(CodeLens {
+                range: *fn_range,
+                command: Some(Command {
+                    title: format!("{} {}", symbol, status),
+                    command: String::new(),
+                    arguments: None,
+                }),
+                data: None,
+            });
+        }
+
+        lenses
+    }
+
     fn compute_inlay_hints(&self, uri: &str, text: &str) -> Vec<InlayHint> {
         let ext = extension_from_uri(uri);
         if ext.is_empty() || !self.engine.supports_extension(ext) {
@@ -126,7 +200,7 @@ impl LanguageServer for Backend {
     async fn initialize(&self, _: InitializeParams) -> Result<InitializeResult> {
         Ok(InitializeResult {
             server_info: Some(ServerInfo {
-                name: "praetor-lsp".into(),
+                name: "praetor".into(),
                 version: Some("0.1.0".into()),
             }),
             capabilities: ServerCapabilities {
@@ -134,15 +208,36 @@ impl LanguageServer for Backend {
                     TextDocumentSyncKind::INCREMENTAL,
                 )),
                 inlay_hint_provider: Some(OneOf::Left(true)),
+                code_lens_provider: Some(CodeLensOptions {
+                    resolve_provider: Some(false),
+                }),
                 ..Default::default()
             },
         })
     }
 
     async fn initialized(&self, _: InitializedParams) {
-        tracing::info!("praetor-lsp initialized");
+        tracing::info!("praetor initialized");
+
+        let manifesto = format!(
+            r#"╔══════════════════════════════════════════════════════════════╗
+║  PRAETOR VERIFICATION ACTIVE — quadruple bookkeeping      ║
+║                                                              ║
+║  Code   → {} languages, {} extensions watched              ║
+║  Docs   → Intent comments required (severity: {})        ║
+║  Graph  → State transitions verified (in progress)        ║
+║  Facts  → Datalog invariants enforced (5 rules active)    ║
+║                                                              ║
+║  AI: All generated code must satisfy all four pillars.     ║
+║  Violations appear as editor diagnostics immediately.      ║
+╚══════════════════════════════════════════════════════════════╝"#,
+            self.engine.loaded_count(),
+            crate::ast::languages::all_extensions().len(),
+            self.config.as_ref().map(|c| c.intent.severity.as_str()).unwrap_or("error"),
+        );
+
         self.client
-            .show_message(MessageType::INFO, "praetor-lsp ready — verification checks active")
+            .show_message(MessageType::INFO, &manifesto)
             .await;
     }
 
@@ -236,6 +331,57 @@ impl LanguageServer for Backend {
             None => Ok(None),
         }
     }
+
+    async fn code_lens(
+        &self,
+        params: CodeLensParams,
+    ) -> Result<Option<Vec<CodeLens>>> {
+        let uri = params.text_document.uri.to_string();
+        let text = {
+            let docs = self.documents.lock().unwrap();
+            docs.get(&uri).map(|s| s.text.clone())
+        };
+        match text {
+            Some(text) => {
+                let lenses = self.compute_code_lenses(&uri, &text);
+                Ok(Some(lenses))
+            }
+            None => Ok(None),
+        }
+    }
+}
+
+fn collect_functions<'a>(
+    node: tree_sitter::Node<'a>,
+    lang: &crate::ast::LanguageConfig,
+    funcs: &mut Vec<(Range, String)>,
+    cursor: &mut tree_sitter::TreeCursor<'a>,
+) {
+    if lang.function_types.contains(&node.kind()) {
+        if let Some(name_node) = crate::ast::find_child_by_path(node, lang.function_name_path) {
+            let name_bytes = name_node.utf8_text(&[]).unwrap_or("");
+            let start = Position {
+                line: node.start_position().row as u32,
+                character: node.start_position().column as u32,
+            };
+            let end = Position {
+                line: node.end_position().row as u32,
+                character: node.end_position().column as u32,
+            };
+            funcs.push((Range { start, end }, name_bytes.to_string()));
+        }
+    }
+    if node.child_count() > 0 {
+        cursor.reset(node);
+        while cursor.goto_first_child() {
+            collect_functions(cursor.node(), lang, funcs, cursor);
+        }
+        cursor.goto_parent();
+    }
+}
+
+fn ranges_overlap(a: &Range, b: &Range) -> bool {
+    !(a.end.line < b.start.line || (a.end.line == b.start.line && a.end.character <= b.start.character))
 }
 
 fn apply_incremental_change(text: &str, change: &TextDocumentContentChangeEvent) -> String {
