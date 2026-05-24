@@ -1,3 +1,7 @@
+[workspace]
+resolver = "2"
+members = [".", "praetor-derive"]
+
 [package]
 name = "praetor"
 version = "0.1.0"
@@ -42,3 +46,12 @@ crepe = "0.2"
 
 # Project report generation
 walkdir = "2"
+
+# Proc-macro for shadow verification
+praetor-derive = { path = "praetor-derive" }
+
+# Benchmarking (optional, for shadow verification)
+divan = { version = "0.1", optional = true }
+
+[features]
+praetor_bench = ["divan", "praetor-derive/praetor_bench"]

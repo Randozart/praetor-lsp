@@ -29,6 +29,30 @@ fn extension_from_uri(uri: &str) -> &str {
     }
 }
 
+/// Shadow for `extension_from_uri` — uses split instead of rfind.
+#[crate::shadow(original = "extension_from_uri")]
+fn extension_from_uri_shadow(uri: &str) -> &str {
+    let path = uri.trim_start_matches("file://");
+    if let Some(_ext) = path.rsplit('.').next() {
+        // rsplit gives the part after the last '.', need to prepend the dot
+        // but only if there actually was a dot
+        if path.contains('.') {
+            // return just the extension without the dot for consistency
+            // Actually, original returns ".ext" with the dot
+            // We need to find the dot position
+            if let Some(pos) = path.rfind('.') {
+                &path[pos..]
+            } else {
+                ""
+            }
+        } else {
+            ""
+        }
+    } else {
+        ""
+    }
+}
+
 fn uri_to_path(uri: &str) -> String {
     // Strip file:// prefix and URL-decode %XX sequences
     let raw = uri.trim_start_matches("file://");

@@ -4,6 +4,9 @@ use clap::{Parser, Subcommand};
 use tower_lsp::LspService;
 use tracing_subscriber::EnvFilter;
 
+// Re-export so #[praetor::shadow] resolves within the crate
+pub use praetor_derive::shadow;
+
 mod ast;
 mod bridge;
 mod checks;
@@ -12,6 +15,7 @@ mod downloader;
 mod facts;
 mod lsp;
 mod report;
+mod verify;
 
 #[derive(Parser)]
 #[command(name = "praetor", version, about = "Quadruple-bookkeeping verification LSP")]
@@ -36,6 +40,27 @@ enum Commands {
         #[arg(long, default_value = "markdown")]
         format: String,
     },
+    /// Run shadow verification benchmarks
+    Verify {
+        /// Source file containing original and shadow functions
+        file: String,
+
+        /// Name of the shadow function (auto-detected if omitted)
+        #[arg(long)]
+        shadow: Option<String>,
+
+        /// Name of the original function (auto-detected if omitted)
+        #[arg(long)]
+        original: Option<String>,
+
+        /// Performance regression threshold as percentage (default: 3)
+        #[arg(long, default_value = "3")]
+        threshold: f64,
+
+        /// Minimum benchmark iterations (default: 10000)
+        #[arg(long, default_value = "10000")]
+        iterations: u64,
+    },
 }
 
 #[tokio::main]
@@ -54,12 +79,14 @@ async fn main() {
         Some(Commands::Report { target, output, format }) => {
             let engine = Arc::new(ast::AstEngine::new());
             let cfg = config::PraetorConfig::discover();
-            // Ensure tools are cached (blocking — user invoked report explicitly)
             let cache = downloader::cache_root();
             let ready = downloader::ensure_all_tools(&cache);
             tracing::info!("{}/{} external tools ready", ready.len(), 3);
             let rep = report::Report::new(engine, cfg);
             rep.generate(&target, &format, output.as_deref());
+        }
+        Some(Commands::Verify { file, shadow, original, threshold, iterations }) => {
+            verify::run_shadow_verify(&file, shadow.as_deref(), original.as_deref(), threshold, iterations);
         }
         _ => run_lsp().await,
     }
