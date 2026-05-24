@@ -1,3 +1,4 @@
+pub mod architecture;
 pub mod complexity;
 pub mod facts;
 pub mod intent;
@@ -80,6 +81,11 @@ impl CheckPipeline {
                     results.extend(state_graph::check_state_graph(parsed, &graph));
                 }
             }
+        }
+
+        // Architecture/SOLID heuristics
+        if config.complexity.cyclomatic_max > 0 {
+            results.extend(architecture::check_architecture(parsed));
         }
 
         results
