@@ -125,9 +125,22 @@ fn find_shadow_fn(source: &str, hint: Option<&str>) -> Option<String> {
 /// Supports: `fn name(...)`, `def name(...)`, `function name(...)`, `name = fn(...)`
 fn extract_fn_name(line: &str) -> Option<&str> {
     let line = line.trim();
-    // Rust/Go/C/C++/Java/JS/TS: fn name(..) or function name(..)
-    for prefix in &["fn ", "def ", "function ", "pub fn ", "pub(crate) fn "] {
-        if let Some(rest) = line.strip_prefix(prefix) {
+    // Strip visibility, async, const, unsafe modifiers before matching
+    let cleaned = line
+        .strip_prefix("pub ")
+        .or_else(|| line.strip_prefix("pub(crate) "))
+        .or_else(|| line.strip_prefix("pub(super) "))
+        .or_else(|| line.strip_prefix("pub(self) "))
+        .or_else(|| line.strip_prefix("pub(in "))
+        .unwrap_or(line);
+    let cleaned = cleaned
+        .strip_prefix("async ")
+        .or_else(|| cleaned.strip_prefix("const "))
+        .or_else(|| cleaned.strip_prefix("unsafe "))
+        .unwrap_or(cleaned);
+    // Now try function-defining keywords
+    for prefix in &["fn ", "def ", "function "] {
+        if let Some(rest) = cleaned.strip_prefix(prefix) {
             let name = rest.split('(').next().unwrap_or("").trim();
             if !name.is_empty() && name.chars().all(|c| c.is_alphanumeric() || c == '_') {
                 return Some(name);

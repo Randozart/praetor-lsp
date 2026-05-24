@@ -128,3 +128,21 @@ pub fn has_recursion(
     }
     false
 }
+
+/// Find the previous sibling of a tree-sitter node, if any.
+pub fn previous_sibling(node: tree_sitter::Node) -> Option<tree_sitter::Node> {
+    let mut cursor = node.walk();
+    if !cursor.goto_parent() {
+        return None;
+    }
+    let parent = cursor.node();
+    let mut prev: Option<tree_sitter::Node> = None;
+    let mut c = parent.walk();
+    for child in parent.children(&mut c) {
+        if child == node {
+            return prev;
+        }
+        prev = Some(child);
+    }
+    None
+}

@@ -154,22 +154,8 @@ pub fn suppress_in_file(
         return diagnostics;
     }
 
-    // Build a map: line -> function name for quick lookup
     let mut line_to_fn: std::collections::HashMap<u32, String> = std::collections::HashMap::new();
-    let mut cursor = root.walk();
-    for child in root.children(&mut cursor) {
-        if !file_config.function_types.contains(&child.kind()) {
-            continue;
-        }
-        if let Some(name_node) = crate::ast::find_child_by_path(child, file_config.function_name_path) {
-            let fn_name = crate::ast::node_text(name_node, source);
-            let start_line = child.start_position().row as u32;
-            let end_line = child.end_position().row as u32;
-            for line in start_line..=end_line {
-                line_to_fn.entry(line).or_insert_with(|| fn_name.to_string());
-            }
-        }
-    }
+    collect_function_lines(root, file_config, source, &mut line_to_fn);
 
     diagnostics
         .into_iter()
@@ -181,4 +167,27 @@ pub fn suppress_in_file(
             }
         })
         .collect()
+}
+
+/// Recursively walk the AST and map every line to the enclosing function name.
+fn collect_function_lines(
+    node: tree_sitter::Node,
+    config: &crate::ast::LanguageConfig,
+    source: &[u8],
+    line_to_fn: &mut std::collections::HashMap<u32, String>,
+) {
+    if config.function_types.contains(&node.kind()) {
+        if let Some(name_node) = crate::ast::find_child_by_path(node, config.function_name_path) {
+            let fn_name = crate::ast::node_text(name_node, source);
+            let start_line = node.start_position().row as u32;
+            let end_line = node.end_position().row as u32;
+            for line in start_line..=end_line {
+                line_to_fn.entry(line).or_insert_with(|| fn_name.to_string());
+            }
+        }
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        collect_function_lines(child, config, source, line_to_fn);
+    }
 }

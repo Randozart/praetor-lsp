@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -297,13 +296,8 @@ impl Backend {
         // Datalog facts for this function
         let mut fact_lines: Vec<String> = Vec::new();
         {
-            let mut sym = SymbolTable::new();
-            let mut calls = Vec::new();
-            let mut accesses = Vec::new();
-            let mut declares = Vec::new();
-            let mut annotated = Vec::new();
-            let mut param_counts = Vec::new();
-            let mut positions: HashMap<u32, (u32, u32)> = HashMap::new();
+            let mut ctx = crate::facts::FactContext::default();
+            ctx.sym = SymbolTable::new();
             let mut fn_cursor3 = root.walk();
             for child in root.children(&mut fn_cursor3) {
                 if !lang.function_types.contains(&child.kind()) {
@@ -313,18 +307,13 @@ impl Backend {
                     .is_some_and(|n| node_text(n, source) == fn_name)
                 {
                     crate::facts::collect_facts_inner(
-                        child, lang, source, &mut sym,
-                        &mut calls, &mut accesses, &mut declares,
-                        &mut annotated, &mut param_counts, &mut positions,
+                        child, lang, source, &mut ctx,
                     );
                     break;
                 }
             }
 
-            let ds = crate::facts::evaluate_facts(
-                &mut sym, &calls, &accesses, &declares,
-                &annotated, &param_counts, &positions,
-            );
+            let ds = crate::facts::evaluate_facts(&mut ctx);
             for d in &ds {
                 if d.function == fn_name {
                     fact_lines.push(format!("- {} (line {})", d.message, d.line + 1));
@@ -825,7 +814,7 @@ mod bench_apply_incremental_change {
         (orig_ns, shadow_ns)
     }
 
-    fn write_registry(winner: &str, ratio: f64, orig_ns: f64, shadow_ns: f64) {
+    fn write_registry(winner: &str, ratio: f64, _orig_ns: f64, _shadow_ns: f64) {
         let praetor_dir = std::path::Path::new(".praetor");
         let mut registry = ShadowRegistry::load(praetor_dir);
         let mut improvement = HashMap::new();

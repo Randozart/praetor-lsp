@@ -2,7 +2,7 @@ use tower_lsp::lsp_types::{DiagnosticSeverity, Position, Range};
 use regex::Regex;
 use tree_sitter::Node;
 
-use crate::ast::{find_child_by_path, node_text};
+use crate::ast::{find_child_by_path, node_text, previous_sibling};
 use crate::ast::ParsedFile;
 use crate::checks::CheckDiagnostic;
 use crate::config::IntentConfig;
@@ -78,23 +78,6 @@ fn walk_intent_check<'a>(
         }
         cursor.goto_parent();
     }
-}
-
-fn previous_sibling(node: Node) -> Option<Node> {
-    let mut cursor = node.walk();
-    if !cursor.goto_parent() {
-        return None;
-    }
-    let parent = cursor.node();
-    let mut prev: Option<Node> = None;
-    let mut c = parent.walk();
-    for child in parent.children(&mut c) {
-        if child == node {
-            return prev;
-        }
-        prev = Some(child);
-    }
-    None
 }
 
 fn push_intent_diag(

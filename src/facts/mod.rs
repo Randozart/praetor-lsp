@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
 use crepe::crepe;
-use tree_sitter::Node;
 
 // Reserved IDs for well-known symbols
 pub const AUTH_ID: u32 = 0;
@@ -57,6 +56,7 @@ crepe! {
         !Call(c, AUTH_ID);
 }
 
+#[derive(Default)]
 pub struct SymbolTable {
     strings: Vec<String>,
     indices: HashMap<String, u32>,
@@ -64,10 +64,7 @@ pub struct SymbolTable {
 
 impl SymbolTable {
     pub fn new() -> Self {
-        let mut st = Self {
-            strings: Vec::new(),
-            indices: HashMap::new(),
-        };
+        let mut st = Self::default();
         st.intern("authenticate");
         st.intern("private_data");
         st.intern("log_access");
@@ -104,53 +101,48 @@ pub struct FactDiagnostic {
     pub character: u32,
 }
 
+/// Context holding all Datalog fact-collection state.
+/// Replaces 7+ separate vector parameters with a single struct.
+#[derive(Default)]
+pub struct FactContext {
+    pub sym: SymbolTable,
+    pub calls: Vec<(u32, u32)>,
+    pub accesses: Vec<(u32, u32)>,
+    pub declares: Vec<(u32, u32)>,
+    pub annotated: Vec<u32>,
+    pub param_counts: Vec<(u32, u32)>,
+    pub positions: HashMap<u32, (u32, u32)>,
+}
+
 pub struct FactEngine;
 
 impl FactEngine {
     pub fn analyze(
         parsed: &crate::ast::ParsedFile,
     ) -> Vec<FactDiagnostic> {
-        let mut sym = SymbolTable::new();
         let lang = parsed.config;
         let source = parsed.text;
         let root = parsed.tree.root_node();
+        let mut ctx = FactContext::default();
+        ctx.sym = SymbolTable::new();
 
-        let mut calls = Vec::new();
-        let mut accesses = Vec::new();
-        let mut declares = Vec::new();
-        let mut annotated = Vec::new();
-        let mut param_counts = Vec::new();
-        let mut positions: HashMap<u32, (u32, u32)> = HashMap::new();
+        collect_facts(root, lang, source, &mut ctx);
 
-        collect_facts(
-            root, lang, source, &mut sym,
-            &mut calls, &mut accesses, &mut declares,
-            &mut annotated, &mut param_counts, &mut positions,
-        );
-
-        evaluate_facts(
-            &mut sym, &calls, &accesses, &declares,
-            &annotated, &param_counts, &positions,
-        )
+        evaluate_facts(&mut ctx)
     }
 }
 
 /// Run the Crepe Datalog engine with collected facts and return diagnostics.
 pub fn evaluate_facts(
-    sym: &mut SymbolTable,
-    calls: &[(u32, u32)],
-    accesses: &[(u32, u32)],
-    declares: &[(u32, u32)],
-    annotated: &[u32],
-    param_counts: &[(u32, u32)],
-    positions: &HashMap<u32, (u32, u32)>,
+    ctx: &mut FactContext,
 ) -> Vec<FactDiagnostic> {
+    let sym = &ctx.sym;
     let mut runtime = Crepe::new();
-    runtime.extend(calls.iter().map(|&(a, b)| Call(a, b)));
-    runtime.extend(accesses.iter().map(|&(a, b)| Access(a, b)));
-    runtime.extend(declares.iter().map(|&(a, b)| Declares(a, b)));
-    runtime.extend(annotated.iter().map(|&f| Annotated(f)));
-    runtime.extend(param_counts.iter().map(|&(f, c)| ParamCount(f, c)));
+    runtime.extend(ctx.calls.iter().map(|&(a, b)| Call(a, b)));
+    runtime.extend(ctx.accesses.iter().map(|&(a, b)| Access(a, b)));
+    runtime.extend(ctx.declares.iter().map(|&(a, b)| Declares(a, b)));
+    runtime.extend(ctx.annotated.iter().map(|&f| Annotated(f)));
+    runtime.extend(ctx.param_counts.iter().map(|&(f, c)| ParamCount(f, c)));
 
     let (violations,) = runtime.run();
 
@@ -164,7 +156,7 @@ pub fn evaluate_facts(
                 sym.resolve(v.2).to_string()
             };
             let msg = format_message(v.0, &fn_name, &detail);
-            let (line, character) = positions.get(&v.1).copied().unwrap_or((0, 0));
+            let (line, character) = ctx.positions.get(&v.1).copied().unwrap_or((0, 0));
             FactDiagnostic {
                 rule_id: v.0,
                 function: fn_name,
@@ -177,24 +169,14 @@ pub fn evaluate_facts(
         .collect()
 }
 
-/// Walk the AST and collect Datalog facts into the provided vectors.
+/// Walk the AST and collect Datalog facts into the provided context.
 pub fn collect_facts_inner<'a>(
     node: tree_sitter::Node<'a>,
     lang: &crate::ast::LanguageConfig,
     source: &'a [u8],
-    sym: &mut SymbolTable,
-    calls: &mut Vec<(u32, u32)>,
-    accesses: &mut Vec<(u32, u32)>,
-    declares: &mut Vec<(u32, u32)>,
-    annotated: &mut Vec<u32>,
-    param_counts: &mut Vec<(u32, u32)>,
-    positions: &mut HashMap<u32, (u32, u32)>,
+    ctx: &mut FactContext,
 ) {
-    collect_facts(
-        node, lang, source, sym,
-        calls, accesses, declares,
-        annotated, param_counts, positions,
-    );
+    collect_facts(node, lang, source, ctx);
 }
 
 fn format_message(rule_id: u32, fn_name: &str, detail: &str) -> String {
@@ -227,16 +209,10 @@ fn format_message(rule_id: u32, fn_name: &str, detail: &str) -> String {
 }
 
 fn collect_facts<'a>(
-    node: Node<'a>,
+    node: tree_sitter::Node<'a>,
     lang: &crate::ast::LanguageConfig,
     source: &'a [u8],
-    sym: &mut SymbolTable,
-    calls: &mut Vec<(u32, u32)>,
-    accesses: &mut Vec<(u32, u32)>,
-    declares: &mut Vec<(u32, u32)>,
-    annotated: &mut Vec<u32>,
-    param_counts: &mut Vec<(u32, u32)>,
-    positions: &mut HashMap<u32, (u32, u32)>,
+    ctx: &mut FactContext,
 ) {
     let fn_types = lang.function_types;
 
@@ -246,42 +222,33 @@ fn collect_facts<'a>(
             if name.is_empty() {
                 return;
             }
-            let fn_id = sym.intern(name);
+            let fn_id = ctx.sym.intern(name);
 
-            // Store function position
             let start = name_node.start_position();
-            positions.insert(fn_id, (start.row as u32, start.column as u32));
+            ctx.positions.insert(fn_id, (start.row as u32, start.column as u32));
 
-            // Check for preceding comment
-            if let Some(prev) = previous_sibling(node) {
+            if let Some(prev) = crate::ast::previous_sibling(node) {
                 if lang.comment_types.contains(&prev.kind()) {
-                    annotated.push(fn_id);
+                    ctx.annotated.push(fn_id);
                 }
             }
 
-            // Count parameters
             let mut p_cursor = node.walk();
             for child in node.children(&mut p_cursor) {
                 if child.kind() == "parameters" {
                     let param_count = count_logical_params(child);
-                    param_counts.push((fn_id, param_count));
+                    ctx.param_counts.push((fn_id, param_count));
                 }
             }
 
-            // Detect calls, accesses, and declarations within function body
-            collect_calls_and_accesses(
-                node, fn_id, lang, source, sym, calls, accesses, declares,
-            );
+            collect_calls_and_accesses(node, fn_id, lang, source, ctx);
         }
     }
 
     if node.child_count() > 0 {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            collect_facts(
-                child, lang, source, sym,
-                calls, accesses, declares, annotated, param_counts, positions,
-            );
+            collect_facts(child, lang, source, ctx);
         }
     }
 }
@@ -291,16 +258,13 @@ fn collect_calls_and_accesses<'a>(
     fn_id: u32,
     lang: &crate::ast::LanguageConfig,
     source: &'a [u8],
-    sym: &mut SymbolTable,
-    calls: &mut Vec<(u32, u32)>,
-    accesses: &mut Vec<(u32, u32)>,
-    declares: &mut Vec<(u32, u32)>,
+    ctx: &mut FactContext,
 ) {
     if node.kind() == lang.call_type {
         if let Some(target) = crate::ast::find_child_by_path(node, lang.call_target_path) {
             let callee = crate::ast::node_text(target, source);
-            let callee_id = sym.intern(callee);
-            calls.push((fn_id, callee_id));
+            let callee_id = ctx.sym.intern(callee);
+            ctx.calls.push((fn_id, callee_id));
         }
     }
 
@@ -312,43 +276,24 @@ fn collect_calls_and_accesses<'a>(
         for child in node.children(&mut c) {
             if child.kind() == "identifier" {
                 let var_name = crate::ast::node_text(child, source);
-                let var_id = sym.intern(var_name);
-                declares.push((fn_id, var_id));
+                let var_id = ctx.sym.intern(var_name);
+                ctx.declares.push((fn_id, var_id));
             }
         }
     }
 
     if kind == "identifier" {
         let name = crate::ast::node_text(node, source);
-        let res_id = sym.intern(name);
-        accesses.push((fn_id, res_id));
+        let res_id = ctx.sym.intern(name);
+        ctx.accesses.push((fn_id, res_id));
     }
 
     if node.child_count() > 0 {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            collect_calls_and_accesses(
-                child, fn_id, lang, source, sym, calls, accesses, declares,
-            );
+            collect_calls_and_accesses(child, fn_id, lang, source, ctx);
         }
     }
-}
-
-fn previous_sibling(node: tree_sitter::Node) -> Option<tree_sitter::Node> {
-    let mut cursor = node.walk();
-    if !cursor.goto_parent() {
-        return None;
-    }
-    let parent = cursor.node();
-    let mut prev: Option<tree_sitter::Node> = None;
-    let mut c = parent.walk();
-    for child in parent.children(&mut c) {
-        if child == node {
-            return prev;
-        }
-        prev = Some(child);
-    }
-    None
 }
 
 /// Count logical parameters by counting child nodes that look like parameters

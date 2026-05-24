@@ -74,6 +74,7 @@ pub fn check_state_graph(
     let root = parsed.tree.root_node();
     let known_actions = graph.known_actions();
     let known_states = graph.known_states();
+    let amap = graph.action_map();
 
     let mut cursor = root.walk();
     for child in root.children(&mut cursor) {
@@ -90,74 +91,23 @@ pub fn check_state_graph(
         }
         let fn_name: &str = &fn_name_owned;
 
-        // Heuristic 1: function name matches a known action
-        let amap = graph.action_map();
-
-        if !known_actions.contains(fn_name) {
-            // Heuristic 2: function name contains a known action as substring
-            let has_known_action = known_actions.iter().any(|a| fn_name.contains(a));
-            // Heuristic 3: function name references known states
-            let has_known_state = known_states.iter().any(|s| fn_name.contains(s));
-
-            if !has_known_action && !has_known_state {
-                // Not obviously a transition function — skip
-                continue;
-            }
+        // Skip functions with no relation to the state graph
+        let has_known_action = known_actions.iter().any(|a| fn_name.contains(a));
+        let has_known_state = known_states.iter().any(|s| fn_name.contains(s));
+        if !has_known_action && !has_known_state {
+            continue;
         }
 
-        // Check function body for state-related patterns
-        let body = child;
-        let body_text = node_text(body, source);
+        let body_text = node_text(child, source);
+        let is_exact_action = known_actions.contains(fn_name);
 
-        // Heuristic: if function name is a known action, check that the body
-        // references one of the valid target states for that action
-        if let Some(matching_action) = known_actions.iter().find(|a| fn_name.contains(*a)) {
-            if let Some(valid_transitions) = amap.get(matching_action) {
-                let valid_targets: Vec<&str> = valid_transitions
-                    .iter()
-                    .map(|(_, to)| *to)
-                    .collect();
-
-                let has_valid_target = valid_targets
-                    .iter()
-                    .any(|target| body_text.contains(*target));
-
-                if !has_valid_target {
-                    diags.push(CheckDiagnostic {
-                        range: Range {
-                            start: Position {
-                                line: name_node.start_position().row as u32,
-                                character: name_node.start_position().column as u32,
-                            },
-                            end: Position {
-                                line: name_node.end_position().row as u32,
-                                character: name_node.end_position().column as u32,
-                            },
-                        },
-                        message: format!(
-                            "[State Graph] `{}` does not transition to any declared target state \
-                             ({})",
-                            fn_name,
-                            valid_targets.join(", "),
-                        ),
-                        severity: DiagnosticSeverity::WARNING,
-                        source: "praetor/state-graph".into(),
-                    });
-                }
-            }
-        }
-
-        if known_actions.contains(fn_name) {
-            // Function name is exactly a known action — verify it's used
-            // in a valid state context
-            let transitions = amap.get(fn_name);
-            if let Some(txns) = transitions {
+        // Exact action match: verify from-state and to-state
+        if is_exact_action {
+            if let Some(txns) = amap.get(fn_name) {
                 let from_states: Vec<&str> = txns.iter().map(|(f, _)| *f).collect();
                 let to_states: Vec<&str> = txns.iter().map(|(_, t)| *t).collect();
 
-                // Check if the function body references at least one valid from-state
-                let has_valid_from = from_states.iter().any(|s| body_text.contains(*s));
-                if !has_valid_from && from_states.len() == 1 {
+                if !from_states.iter().any(|s| body_text.contains(*s)) && from_states.len() == 1 {
                     diags.push(CheckDiagnostic {
                         range: Range {
                             start: Position {
@@ -170,19 +120,15 @@ pub fn check_state_graph(
                             },
                         },
                         message: format!(
-                            "[State Graph] `{}` should transition from `{}` but \
-                             body does not reference that state",
-                            fn_name,
-                            from_states[0],
+                            "[State Graph] `{}` should transition from `{}` but body does not reference that state",
+                            fn_name, from_states[0],
                         ),
                         severity: DiagnosticSeverity::HINT,
                         source: "praetor/state-graph".into(),
                     });
                 }
 
-                // Check if the function body references at least one valid to-state
-                let has_valid_to = to_states.iter().any(|s| body_text.contains(*s));
-                if !has_valid_to && to_states.len() == 1 {
+                if !to_states.iter().any(|s| body_text.contains(*s)) && to_states.len() == 1 {
                     diags.push(CheckDiagnostic {
                         range: Range {
                             start: Position {
@@ -195,14 +141,43 @@ pub fn check_state_graph(
                             },
                         },
                         message: format!(
-                            "[State Graph] `{}` should transition to `{}` but \
-                             body does not reference that state",
-                            fn_name,
-                            to_states[0],
+                            "[State Graph] `{}` should transition to `{}` but body does not reference that state",
+                            fn_name, to_states[0],
                         ),
                         severity: DiagnosticSeverity::HINT,
                         source: "praetor/state-graph".into(),
                     });
+                }
+            }
+        } else {
+            // Substring action match: check target states
+            if let Some(matching_action) = known_actions.iter().find(|a| fn_name.contains(*a)) {
+                if let Some(valid_transitions) = amap.get(matching_action) {
+                    let valid_targets: Vec<&str> = valid_transitions
+                        .iter()
+                        .map(|(_, to)| *to)
+                        .collect();
+
+                    if !valid_targets.iter().any(|target| body_text.contains(*target)) {
+                        diags.push(CheckDiagnostic {
+                            range: Range {
+                                start: Position {
+                                    line: name_node.start_position().row as u32,
+                                    character: name_node.start_position().column as u32,
+                                },
+                                end: Position {
+                                    line: name_node.end_position().row as u32,
+                                    character: name_node.end_position().column as u32,
+                                },
+                            },
+                            message: format!(
+                                "[State Graph] `{}` does not transition to any declared target state ({})",
+                                fn_name, valid_targets.join(", "),
+                            ),
+                            severity: DiagnosticSeverity::WARNING,
+                            source: "praetor/state-graph".into(),
+                        });
+                    }
                 }
             }
         }

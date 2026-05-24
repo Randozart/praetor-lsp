@@ -1,10 +1,10 @@
 {
   "entries": {
     "apply_incremental_change": {
-      "original_hash": "sha256-7e043bdcbf634bc5d003ce27042600d3a52e8489795142ff9921b6b55b4baac6",
-      "shadow_hash": "sha256-7e043bdcbf634bc5d003ce27042600d3a52e8489795142ff9921b6b55b4baac6",
-      "winner": "original",
-      "ratio": 1.113913959527468,
+      "original_hash": "sha256-cf185b36eacebdb9f7db5bc39c610dc25adcb072cf215bec090f765eddc9638d",
+      "shadow_hash": "sha256-cf185b36eacebdb9f7db5bc39c610dc25adcb072cf215bec090f765eddc9638d",
+      "winner": "shadow",
+      "ratio": 1.026386961506123,
       "improvement": {
         "cognitive": {
           "before": 44,
@@ -18,7 +18,7 @@
       "suppressed_diagnostics": [
         "praetor/metrics"
       ],
-      "verified_at": "2080-04-09T14:59:02Z"
+      "verified_at": "2080-04-09T15:21:24Z"
     }
   }
 }

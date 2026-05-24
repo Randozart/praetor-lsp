@@ -171,20 +171,12 @@ pub fn check_architecture(parsed: &ParsedFile) -> Vec<CheckDiagnostic> {
 
 /// Count the depth of inheritance by following base-class references.
 fn count_inheritance_depth(class_node: &Node) -> u32 {
-    let mut depth = 0u32;
-
     for ik in INHERITANCE_KINDS {
-        if let Some(base) = find_child_by_path(*class_node, &[ik]) {
-            depth += 1;
-            // Heuristic: check for additional identifiers in the base clause
-            let mut bc = base.walk();
-            for _ in base.children(&mut bc) {
-                depth += 1;
-            }
+        if find_child_by_path(*class_node, &[ik]).is_some() {
+            return 1;
         }
     }
-
-    depth
+    0
 }
 
 fn is_punctuation(kind: &str) -> bool {
