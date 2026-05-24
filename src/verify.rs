@@ -93,32 +93,31 @@ pub fn run_shadow_verify(
 }
 
 /// Find a function annotated with a `praetor-shadow:` comment in the source.
-///
-/// Works across languages — the comment marker is the same:
-/// - `// praetor-shadow: original=fn_name`
-/// - `# praetor-shadow: original=fn_name`
-/// - `/* praetor-shadow: original=fn_name */`
 fn find_shadow_fn(source: &str, hint: Option<&str>) -> Option<String> {
     let lines: Vec<&str> = source.lines().collect();
-    let mut i = 0;
-
-    while i < lines.len() {
-        let line = lines[i].trim();
-        if line.contains("praetor-shadow:") {
-            let mut j = i + 1;
-            while j < lines.len() && (lines[j].trim().is_empty() || lines[j].trim().starts_with('#')) {
-                j += 1;
-            }
-            // Try Rust-like function syntax
-            if let Some(name) = extract_fn_name(lines.get(j).unwrap_or(&"").trim()) {
-                if hint.map_or(true, |h| name == h) {
-                    return Some(name.to_string());
-                }
-            }
+    for (i, _) in lines.iter().enumerate() {
+        if !has_shadow_comment(lines[i].trim()) {
+            continue;
         }
-        i += 1;
+        let j = skip_to_function_def(&lines, i + 1)?;
+        let name = extract_fn_name(lines.get(j).unwrap_or(&"").trim())?;
+        if hint.map_or(true, |h| name == h) {
+            return Some(name.to_string());
+        }
     }
     None
+}
+
+fn has_shadow_comment(line: &str) -> bool {
+    line.contains("praetor-shadow:")
+}
+
+fn skip_to_function_def(lines: &[&str], start: usize) -> Option<usize> {
+    let mut j = start;
+    while j < lines.len() && (lines[j].trim().is_empty() || lines[j].trim().starts_with('#')) {
+        j += 1;
+    }
+    if j < lines.len() { Some(j) } else { None }
 }
 
 /// Extract a function name from a line that might define a function.
@@ -153,37 +152,35 @@ fn extract_fn_name(line: &str) -> Option<&str> {
 /// Find the original function name from a `praetor-shadow: original=fn_name` comment.
 fn find_original_for_shadow(source: &str, shadow_fn: &str) -> Option<String> {
     let lines: Vec<&str> = source.lines().collect();
-    let mut i = 0;
-
-    while i < lines.len() {
-        let line = lines[i].trim();
-        // Match lines containing `praetor-shadow:` and `original=`
-        if line.contains("praetor-shadow:") && line.contains("original=") {
-            // Extract original = "name" or original=name
-            let after_keyword = line.split("original=").nth(1)?;
-            let name = after_keyword
-                .trim()
-                .trim_start_matches('"')
-                .split(|c: char| c == '"' || c == ' ' || c == ',' || c == ')' || c == '*' || c == '/')
-                .next()
-                .unwrap_or("")
-                .trim();
-            if !name.is_empty() {
-                // Verify this comment precedes the shadow function
-                let mut j = i + 1;
-                while j < lines.len() && (lines[j].trim().is_empty() || lines[j].trim().starts_with('#')) {
-                    j += 1;
-                }
-                if let Some(fn_name) = extract_fn_name(lines.get(j).unwrap_or(&"").trim()) {
-                    if fn_name == shadow_fn {
-                        return Some(name.to_string());
-                    }
-                }
-            }
+    for (i, line) in lines.iter().enumerate() {
+        let trimmed = line.trim();
+        if !has_shadow_comment(trimmed) || !trimmed.contains("original=") {
+            continue;
         }
-        i += 1;
+        let name = extract_original_name(trimmed)?;
+        if name.is_empty() {
+            continue;
+        }
+        let j = skip_to_function_def(&lines, i + 1)?;
+        let fn_name = extract_fn_name(lines.get(j).unwrap_or(&"").trim())?;
+        if fn_name == shadow_fn {
+            return Some(name);
+        }
     }
     None
+}
+
+fn extract_original_name(line: &str) -> Option<String> {
+    let after_keyword = line.split("original=").nth(1)?;
+    let name = after_keyword
+        .trim()
+        .trim_start_matches('"')
+        .split(|c: char| c == '"' || c == ' ' || c == ',' || c == ')' || c == '*' || c == '/')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    if name.is_empty() { None } else { Some(name) }
 }
 
 /// Generate a benchmark scaffold file for the original and shadow functions.

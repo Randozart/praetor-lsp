@@ -41,43 +41,47 @@ fn walk_intent_check<'a>(
     cursor: &mut tree_sitter::TreeCursor<'a>,
 ) {
     if lang.function_types.contains(&node.kind()) {
-        let name_node = find_child_by_path(node, lang.function_name_path);
-        let fn_name = name_node.map(|n| node_text(n, source)).unwrap_or("");
-
-        if config
-            .exempt_patterns
-            .iter()
-            .any(|pat| Regex::new(pat).is_ok_and(|re| re.is_match(fn_name)))
-        {
-            // Skip — exempt
-        } else if let Some(prev) = previous_sibling(node) {
-            let has_comment = lang
-                .comment_types
-                .iter()
-                .any(|ct| prev.kind() == *ct);
-            if !has_comment {
-                push_intent_diag(node, source, fn_name, severity, diags);
-            }
-        } else {
-            push_intent_diag(node, source, fn_name, severity, diags);
-        }
+        check_function_intent(node, lang, source, severity, config, diags);
     }
 
     if node.child_count() > 0 {
         cursor.reset(node);
         while cursor.goto_first_child() {
             walk_intent_check(
-                cursor.node(),
-                lang,
-                source,
-                severity,
-                config,
-                diags,
-                cursor,
+                cursor.node(), lang, source, severity, config, diags, cursor,
             );
         }
         cursor.goto_parent();
     }
+}
+
+fn check_function_intent(
+    fn_node: Node,
+    lang: &crate::ast::LanguageConfig,
+    source: &[u8],
+    severity: DiagnosticSeverity,
+    config: &IntentConfig,
+    diags: &mut Vec<CheckDiagnostic>,
+) {
+    let fn_name = find_child_by_path(fn_node, lang.function_name_path)
+        .map(|n| node_text(n, source)).unwrap_or("");
+
+    if is_exempt(fn_name, config) {
+        return;
+    }
+
+    let has_comment = previous_sibling(fn_node)
+        .is_some_and(|prev| lang.comment_types.contains(&prev.kind()));
+
+    if !has_comment {
+        push_intent_diag(fn_node, source, fn_name, severity, diags);
+    }
+}
+
+fn is_exempt(fn_name: &str, config: &IntentConfig) -> bool {
+    config.exempt_patterns
+        .iter()
+        .any(|pat| Regex::new(pat).is_ok_and(|re| re.is_match(fn_name)))
 }
 
 fn push_intent_diag(

@@ -269,41 +269,51 @@ fn collect_facts<'a>(
     source: &'a [u8],
     ctx: &mut FactContext,
 ) {
-    let fn_types = lang.function_types;
-
-    if fn_types.contains(&node.kind()) {
-        if let Some(name_node) = crate::ast::find_child_by_path(node, lang.function_name_path) {
-            let name = crate::ast::node_text(name_node, source);
-            if name.is_empty() {
-                return;
-            }
-            let fn_id = ctx.sym.intern(name);
-
-            let start = name_node.start_position();
-            ctx.positions.insert(fn_id, (start.row as u32, start.column as u32));
-
-            if let Some(prev) = crate::ast::previous_sibling(node) {
-                if lang.comment_types.contains(&prev.kind()) {
-                    ctx.annotated.push(fn_id);
-                }
-            }
-
-            let mut p_cursor = node.walk();
-            for child in node.children(&mut p_cursor) {
-                if child.kind() == "parameters" {
-                    let param_count = count_logical_params(child);
-                    ctx.param_counts.push((fn_id, param_count));
-                }
-            }
-
-            collect_calls_and_accesses(node, fn_id, lang, source, ctx);
-        }
+    if lang.function_types.contains(&node.kind()) {
+        process_function(node, lang, source, ctx);
     }
-
     if node.child_count() > 0 {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             collect_facts(child, lang, source, ctx);
+        }
+    }
+}
+
+fn process_function<'a>(
+    node: tree_sitter::Node<'a>,
+    lang: &crate::ast::LanguageConfig,
+    source: &'a [u8],
+    ctx: &mut FactContext,
+) {
+    let name_node = match crate::ast::find_child_by_path(node, lang.function_name_path) {
+        Some(n) => n,
+        None => return,
+    };
+    let name = crate::ast::node_text(name_node, source);
+    if name.is_empty() {
+        return;
+    }
+    let fn_id = ctx.sym.intern(name);
+    let start = name_node.start_position();
+    ctx.positions.insert(fn_id, (start.row as u32, start.column as u32));
+
+    if let Some(prev) = crate::ast::previous_sibling(node) {
+        if lang.comment_types.contains(&prev.kind()) {
+            ctx.annotated.push(fn_id);
+        }
+    }
+
+    count_params_for_fn(node, fn_id, ctx);
+    collect_calls_and_accesses(node, fn_id, lang, source, ctx);
+}
+
+fn count_params_for_fn(node: tree_sitter::Node, fn_id: u32, ctx: &mut FactContext) {
+    let mut p_cursor = node.walk();
+    for child in node.children(&mut p_cursor) {
+        if child.kind() == "parameters" {
+            let param_count = count_logical_params(child);
+            ctx.param_counts.push((fn_id, param_count));
         }
     }
 }
@@ -315,33 +325,9 @@ fn collect_calls_and_accesses<'a>(
     source: &'a [u8],
     ctx: &mut FactContext,
 ) {
-    if node.kind() == lang.call_type {
-        if let Some(target) = crate::ast::find_child_by_path(node, lang.call_target_path) {
-            let callee = crate::ast::node_text(target, source);
-            let callee_id = ctx.sym.intern(callee);
-            ctx.calls.push((fn_id, callee_id));
-        }
-    }
-
-    let kind = node.kind();
-    if kind == "assignment" || kind == "variable_declaration"
-        || kind == "let_declaration" || kind == "lexical_declaration"
-    {
-        let mut c = node.walk();
-        for child in node.children(&mut c) {
-            if child.kind() == "identifier" {
-                let var_name = crate::ast::node_text(child, source);
-                let var_id = ctx.sym.intern(var_name);
-                ctx.declares.push((fn_id, var_id));
-            }
-        }
-    }
-
-    if kind == "identifier" {
-        let name = crate::ast::node_text(node, source);
-        let res_id = ctx.sym.intern(name);
-        ctx.accesses.push((fn_id, res_id));
-    }
+    record_call(node, fn_id, lang, source, ctx);
+    record_declaration(node, source, fn_id, ctx);
+    record_access(node, source, fn_id, ctx);
 
     if node.child_count() > 0 {
         let mut cursor = node.walk();
@@ -349,6 +335,42 @@ fn collect_calls_and_accesses<'a>(
             collect_calls_and_accesses(child, fn_id, lang, source, ctx);
         }
     }
+}
+
+fn record_call(node: tree_sitter::Node, fn_id: u32, lang: &crate::ast::LanguageConfig, source: &[u8], ctx: &mut FactContext) {
+    if node.kind() != lang.call_type {
+        return;
+    }
+    let Some(target) = crate::ast::find_child_by_path(node, lang.call_target_path) else { return };
+    let callee = crate::ast::node_text(target, source);
+    let callee_id = ctx.sym.intern(callee);
+    ctx.calls.push((fn_id, callee_id));
+}
+
+fn record_declaration(node: tree_sitter::Node, source: &[u8], fn_id: u32, ctx: &mut FactContext) {
+    let kind = node.kind();
+    if kind != "assignment" && kind != "variable_declaration"
+        && kind != "let_declaration" && kind != "lexical_declaration"
+    {
+        return;
+    }
+    let mut c = node.walk();
+    for child in node.children(&mut c) {
+        if child.kind() == "identifier" {
+            let var_name = crate::ast::node_text(child, source);
+            let var_id = ctx.sym.intern(var_name);
+            ctx.declares.push((fn_id, var_id));
+        }
+    }
+}
+
+fn record_access(node: tree_sitter::Node, source: &[u8], fn_id: u32, ctx: &mut FactContext) {
+    if node.kind() != "identifier" {
+        return;
+    }
+    let name = crate::ast::node_text(node, source);
+    let res_id = ctx.sym.intern(name);
+    ctx.accesses.push((fn_id, res_id));
 }
 
 /// Count logical parameters by counting child nodes that look like parameters

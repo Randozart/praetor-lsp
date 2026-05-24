@@ -133,26 +133,16 @@ pub fn setup_cache(cache: &Path) -> std::io::Result<()> {
 
 /// Check if a tool is already cached and ready.
 pub fn is_tool_ready(tool: &ToolAsset, cache: &Path) -> bool {
-    if tool.archive_type.is_some() {
-        // For archived tools, check for the extracted binary
-        let bin_path = tool.bin_path(cache);
-        if bin_path.exists() {
-            return true;
-        }
-        // Also check lib/ for JARs
-        let lib_path = cache.join("lib").join(format!("{}.jar", tool.name));
-        if lib_path.exists() {
-            return true;
-        }
-        false
-    } else {
-        // Non-archived (plain file download) — check bin/ or lib/
-        if tool.name.ends_with(".jar") || tool.name.contains("sonarlint") {
-            cache.join("lib").join(format!("{}.jar", tool.name)).exists()
-        } else {
-            tool.bin_path(cache).exists()
-        }
+    if tool.archive_type.is_some() && tool.bin_path(cache).exists() {
+        return true;
     }
+    if tool.archive_type.is_some() && cache.join("lib").join(format!("{}.jar", tool.name)).exists() {
+        return true;
+    }
+    if tool.name.ends_with(".jar") || tool.name.contains("sonarlint") {
+        return cache.join("lib").join(format!("{}.jar", tool.name)).exists();
+    }
+    tool.bin_path(cache).exists()
 }
 
 /// Download a tool asset. Uses `curl` for HTTP download.
@@ -194,106 +184,12 @@ pub fn install_tool(tool: &ToolAsset, archive_path: &Path, cache: &Path) -> Resu
 
     match tool.archive_type.as_deref() {
         Some("tgz") | Some("tar.gz") => {
-            let tmp = cache.join("tmp").join(&tool.name);
-            fs::create_dir_all(&tmp)
-                .map_err(|e| format!("failed to create temp dir: {}", e))?;
-
-            let status = Command::new("tar")
-                .args(["-xzf"])
-                .arg(archive_path)
-                .arg("-C")
-                .arg(&tmp)
-                .status()
-                .map_err(|e| format!("failed to invoke tar: {}", e))?;
-
-            if !status.success() {
-                return Err(format!("tar extraction failed for {}", tool.name));
-            }
-
-            // Move the binary to bin/
-            let extract_name = tool.extract_path.as_deref().unwrap_or(&tool.name);
-            let extracted = tmp.join(extract_name);
-            let bin_name = tool.binary_name.as_deref().unwrap_or(&tool.name);
-            let bin_dest = cache.join("bin").join(bin_name);
-
-            if extracted.is_file() {
-                fs::rename(&extracted, &bin_dest)
-                    .or_else(|_| fs::copy(&extracted, &bin_dest).map(|_| ()))
-                    .map_err(|e| format!("failed to install binary: {}", e))?;
-            } else if extracted.is_dir() {
-                // Try to find the binary inside the extracted directory
-                let binary = extracted.join(bin_name);
-                if binary.exists() {
-                    fs::rename(&binary, &bin_dest)
-                        .or_else(|_| fs::copy(&binary, &bin_dest).map(|_| ()))
-                        .map_err(|e| format!("failed to install binary from dir: {}", e))?;
-                } else {
-                    warn!("extracted path {} not found for {}", extracted.display(), tool.name);
-                }
-            }
-
-            // Set executable permission (non-Windows)
-            if os != "windows" {
-                let _ = Command::new("chmod")
-                    .args(["+x"])
-                    .arg(&bin_dest)
-                    .status();
-            }
-
-            // Cleanup temp
-            let _ = fs::remove_dir_all(&tmp);
-
-            info!("installed {} to {}", tool.name, bin_dest.display());
+            extract_and_install(tool, archive_path, cache, os, &["-xzf"])?;
         }
-
         Some("tar.xz") => {
-            let tmp = cache.join("tmp").join(&tool.name);
-            fs::create_dir_all(&tmp)
-                .map_err(|e| format!("failed to create temp dir: {}", e))?;
-
-            // Use tar with J flag for xz
-            let status = Command::new("tar")
-                .args(["-xJf"])
-                .arg(archive_path)
-                .arg("-C")
-                .arg(&tmp)
-                .status()
-                .map_err(|e| format!("failed to invoke tar (xz): {}", e))?;
-
-            if !status.success() {
-                return Err(format!("tar.xz extraction failed for {}", tool.name));
-            }
-
-            let extract_name = tool.extract_path.as_deref().unwrap_or(&tool.name);
-            let extracted = tmp.join(extract_name);
-            let bin_name = tool.binary_name.as_deref().unwrap_or(&tool.name);
-            let bin_dest = cache.join("bin").join(bin_name);
-
-            // Walk the extracted tree to find the binary
-            if let Ok(mut entries) = fs::read_dir(&extracted) {
-                // Infer archive extracts with a versioned parent dir
-                // e.g. infer-1.2.0-linux-x86_64/infer/bin/infer
-                if let Some(entry) = entries.next().and_then(|r| r.ok()) {
-                    let unwrapped = entry.path();
-                    let binary = unwrapped.join(bin_name);
-                    if binary.exists() {
-                        fs::rename(&binary, &bin_dest)
-                            .or_else(|_| fs::copy(&binary, &bin_dest).map(|_| ()))
-                            .map_err(|e| format!("failed to install binary: {}", e))?;
-                    }
-                }
-            }
-
-            if os != "windows" {
-                let _ = Command::new("chmod").args(["+x"]).arg(&bin_dest).status();
-            }
-
-            let _ = fs::remove_dir_all(&tmp);
-            info!("installed {} to {}", tool.name, bin_dest.display());
+            extract_and_install(tool, archive_path, cache, os, &["-xJf"])?;
         }
-
         _ => {
-            // Plain file (e.g., JAR) — copy to lib/
             let file_name = archive_path
                 .file_name()
                 .unwrap_or_default()
@@ -305,7 +201,78 @@ pub fn install_tool(tool: &ToolAsset, archive_path: &Path, cache: &Path) -> Resu
             info!("installed {} to {}", tool.name, lib_dest.display());
         }
     }
+    Ok(())
+}
 
+fn extract_and_install(
+    tool: &ToolAsset,
+    archive_path: &Path,
+    cache: &Path,
+    os: &str,
+    tar_flags: &[&str],
+) -> Result<(), String> {
+    let tmp = cache.join("tmp").join(&tool.name);
+    fs::create_dir_all(&tmp)
+        .map_err(|e| format!("failed to create temp dir: {}", e))?;
+
+    let mut tar_args = tar_flags.to_vec();
+    tar_args.push(archive_path.to_str().unwrap_or(""));
+    tar_args.push("-C");
+    tar_args.push(tmp.to_str().unwrap_or(""));
+    let status = Command::new("tar")
+        .args(&tar_args)
+        .status()
+        .map_err(|e| format!("failed to invoke tar: {}", e))?;
+
+    if !status.success() {
+        let _ = fs::remove_dir_all(&tmp);
+        return Err(format!("tar extraction failed for {}", tool.name));
+    }
+
+    let extract_name = tool.extract_path.as_deref().unwrap_or(&tool.name);
+    let extracted = tmp.join(extract_name);
+    let bin_name = tool.binary_name.as_deref().unwrap_or(&tool.name);
+    let bin_dest = cache.join("bin").join(bin_name);
+
+    install_binary(&extracted, bin_name, &bin_dest)?;
+
+    if os != "windows" {
+        let _ = Command::new("chmod").args(["+x"]).arg(&bin_dest).status();
+    }
+
+    let _ = fs::remove_dir_all(&tmp);
+    info!("installed {} to {}", tool.name, bin_dest.display());
+    Ok(())
+}
+
+fn install_binary(extracted: &Path, bin_name: &str, bin_dest: &Path) -> Result<(), String> {
+    if extracted.is_file() {
+        return fs::rename(extracted, bin_dest)
+            .or_else(|_| fs::copy(extracted, bin_dest).map(|_| ()))
+            .map_err(|e| format!("failed to install binary: {}", e));
+    }
+    if extracted.is_dir() {
+        let binary = extracted.join(bin_name);
+        if binary.exists() {
+            return fs::rename(&binary, bin_dest)
+                .or_else(|_| fs::copy(&binary, bin_dest).map(|_| ()))
+                .map_err(|e| format!("failed to install binary from dir: {}", e));
+        }
+        warn!("extracted path {} not found", extracted.display());
+        return Ok(());
+    }
+    // tar.xz archives often have a versioned parent dir
+    if let Ok(mut entries) = fs::read_dir(extracted) {
+        if let Some(entry) = entries.next().and_then(|r| r.ok()) {
+            let inner_binary = entry.path().join(bin_name);
+            if inner_binary.exists() {
+                return fs::rename(&inner_binary, bin_dest)
+                    .or_else(|_| fs::copy(&inner_binary, bin_dest).map(|_| ()))
+                    .map_err(|e| format!("failed to install binary: {}", e));
+            }
+        }
+    }
+    warn!("binary {} not found in {}", bin_name, extracted.display());
     Ok(())
 }
 

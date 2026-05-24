@@ -219,21 +219,32 @@ fn max_nesting_depth(node: Node, depth: u32) -> u32 {
 fn count_params(fn_node: Node) -> u32 {
     let mut cursor = fn_node.walk();
     for child in fn_node.children(&mut cursor) {
-        let k = child.kind();
-        if k == "parameters" || k == "formal_parameters" || k.ends_with("parameters") {
-            let mut count = 0;
-            let mut pc = child.walk();
-            for param in child.children(&mut pc) {
-                let pk = param.kind();
-                if !matches!(pk, "," | ":" | "(" | ")" | "->" | "=>")
-                    && !pk.ends_with("type") && !pk.ends_with("annotation")
-                    && !pk.ends_with("pattern")
-                {
-                    count += 1;
-                }
-            }
-            return count;
+        if is_params_node(&child) {
+            return count_param_children(&child);
         }
     }
     0
+}
+
+fn is_params_node(child: &Node) -> bool {
+    let k = child.kind();
+    k == "parameters" || k == "formal_parameters" || k.ends_with("parameters")
+}
+
+fn count_param_children(params_node: &Node) -> u32 {
+    let mut count = 0;
+    let mut pc = params_node.walk();
+    for param in params_node.children(&mut pc) {
+        if is_actual_param(&param) {
+            count += 1;
+        }
+    }
+    count
+}
+
+fn is_actual_param(param: &Node) -> bool {
+    let pk = param.kind();
+    !matches!(pk, "," | ":" | "(" | ")" | "->" | "=>")
+        && !pk.ends_with("type") && !pk.ends_with("annotation")
+        && !pk.ends_with("pattern")
 }
