@@ -94,7 +94,6 @@ impl SymbolTable {
 #[derive(Debug, Clone)]
 pub struct FactDiagnostic {
     pub rule_id: u32,
-    #[allow(dead_code)]
     pub function: String,
     #[allow(dead_code)]
     pub detail: String,
@@ -129,38 +128,73 @@ impl FactEngine {
             &mut annotated, &mut param_counts, &mut positions,
         );
 
-        let mut runtime = Crepe::new();
-        runtime.extend(calls.into_iter().map(|(a, b)| Call(a, b)));
-        runtime.extend(accesses.into_iter().map(|(a, b)| Access(a, b)));
-        runtime.extend(declares.into_iter().map(|(a, b)| Declares(a, b)));
-        runtime.extend(annotated.into_iter().map(|f| Annotated(f)));
-        runtime.extend(param_counts.into_iter().map(|(f, c)| ParamCount(f, c)));
-
-        let         (violations,) = runtime.run();
-
-        violations
-            .into_iter()
-            .map(|v| {
-                let fn_name = sym.resolve(v.1).to_string();
-                let param_count = v.2; // raw count for rule 4
-                let detail = if v.0 == 4 {
-                    param_count.to_string()
-                } else {
-                    sym.resolve(v.2).to_string()
-                };
-                let msg = format_message(v.0, &fn_name, &detail);
-                let (line, character) = positions.get(&v.1).copied().unwrap_or((0, 0));
-                FactDiagnostic {
-                    rule_id: v.0,
-                    function: fn_name,
-                    detail,
-                    message: msg,
-                    line,
-                    character,
-                }
-            })
-            .collect()
+        evaluate_facts(
+            &mut sym, &calls, &accesses, &declares,
+            &annotated, &param_counts, &positions,
+        )
     }
+}
+
+/// Run the Crepe Datalog engine with collected facts and return diagnostics.
+pub fn evaluate_facts(
+    sym: &mut SymbolTable,
+    calls: &[(u32, u32)],
+    accesses: &[(u32, u32)],
+    declares: &[(u32, u32)],
+    annotated: &[u32],
+    param_counts: &[(u32, u32)],
+    positions: &HashMap<u32, (u32, u32)>,
+) -> Vec<FactDiagnostic> {
+    let mut runtime = Crepe::new();
+    runtime.extend(calls.iter().map(|&(a, b)| Call(a, b)));
+    runtime.extend(accesses.iter().map(|&(a, b)| Access(a, b)));
+    runtime.extend(declares.iter().map(|&(a, b)| Declares(a, b)));
+    runtime.extend(annotated.iter().map(|&f| Annotated(f)));
+    runtime.extend(param_counts.iter().map(|&(f, c)| ParamCount(f, c)));
+
+    let (violations,) = runtime.run();
+
+    violations
+        .into_iter()
+        .map(|v| {
+            let fn_name = sym.resolve(v.1).to_string();
+            let detail = if v.0 == 4 {
+                v.2.to_string()
+            } else {
+                sym.resolve(v.2).to_string()
+            };
+            let msg = format_message(v.0, &fn_name, &detail);
+            let (line, character) = positions.get(&v.1).copied().unwrap_or((0, 0));
+            FactDiagnostic {
+                rule_id: v.0,
+                function: fn_name,
+                detail,
+                message: msg,
+                line,
+                character,
+            }
+        })
+        .collect()
+}
+
+/// Walk the AST and collect Datalog facts into the provided vectors.
+pub fn collect_facts_inner<'a>(
+    node: tree_sitter::Node<'a>,
+    lang: &crate::ast::LanguageConfig,
+    source: &'a [u8],
+    sym: &mut SymbolTable,
+    calls: &mut Vec<(u32, u32)>,
+    accesses: &mut Vec<(u32, u32)>,
+    declares: &mut Vec<(u32, u32)>,
+    annotated: &mut Vec<u32>,
+    param_counts: &mut Vec<(u32, u32)>,
+    positions: &mut HashMap<u32, (u32, u32)>,
+) {
+    collect_facts(
+        node, lang, source, sym,
+        calls, accesses, declares,
+        annotated, param_counts, positions,
+    );
 }
 
 fn format_message(rule_id: u32, fn_name: &str, detail: &str) -> String {

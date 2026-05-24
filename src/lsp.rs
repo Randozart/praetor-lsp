@@ -1,11 +1,14 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use tower_lsp::lsp_types::*;
 use tower_lsp::{jsonrpc::Result, Client, LanguageServer};
 
-use crate::ast::AstEngine;
+use crate::ast::{AstEngine, find_child_by_path, max_loop_depth, node_text};
+use crate::ast::has_recursion;
 use crate::checks::CheckPipeline;
 use crate::config::PraetorConfig;
+use crate::facts::SymbolTable;
 
 #[derive(Clone)]
 struct DocumentState {
@@ -145,6 +148,199 @@ impl Backend {
         }
 
         lenses
+    }
+
+    fn compute_hover(
+        &self,
+        uri: &str,
+        text: &str,
+        position: Position,
+    ) -> Option<String> {
+        let ext = extension_from_uri(uri);
+        if ext.is_empty() || !self.engine.supports_extension(ext) {
+            return None;
+        }
+        let parsed = self.engine.parse(ext, text.as_bytes())?;
+        let lang = parsed.config;
+        let source = parsed.text;
+        let root = parsed.tree.root_node();
+
+        // Find the function node containing the hover position
+        let mut target_fn: Option<(String, u32, u32, i32)> = None;
+        let mut fn_cursor = root.walk();
+        for child in root.children(&mut fn_cursor) {
+            if !lang.function_types.contains(&child.kind()) {
+                continue;
+            }
+            let start_row = child.start_position().row as i32;
+            let end_row = child.end_position().row as i32;
+            let pos_row = position.line as i32;
+            if pos_row >= start_row && pos_row <= end_row {
+                let name_node = find_child_by_path(child, lang.function_name_path)?;
+                let fn_name = node_text(name_node, source);
+                let loop_depth = max_loop_depth(child, lang.loop_types, 0);
+                let recursive = has_recursion(
+                    child, &fn_name, lang.call_type, lang.call_target_path, source,
+                );
+                target_fn = Some((fn_name.to_string(), loop_depth, if recursive { 1 } else { 0 }, 0));
+                break;
+            }
+        }
+        let (fn_name, loop_depth, recursive, _) = target_fn?;
+
+        // Complexity classification
+        let label = if recursive > 0 {
+            "O(2ⁿ)".to_string()
+        } else {
+            match loop_depth {
+                0 => "O(1)".to_string(),
+                1 => "O(n)".to_string(),
+                2 => "O(n²)".to_string(),
+                _ => "O(n^k)".to_string(),
+            }
+        };
+
+        // Intent — find preceding comment
+        let mut intent_text = String::new();
+        let mut fn_cursor2 = root.walk();
+        for child in root.children(&mut fn_cursor2) {
+            if !lang.function_types.contains(&child.kind()) {
+                continue;
+            }
+            if let Some(name_node) = find_child_by_path(child, lang.function_name_path) {
+                let name = node_text(name_node, source);
+                if name == fn_name {
+                    let mut prev: Option<tree_sitter::Node> = None;
+                    let mut c = child.walk();
+                    if c.goto_parent() {
+                        let parent = c.node();
+                        let mut pc = parent.walk();
+                        for sib in parent.children(&mut pc) {
+                            if sib == child { break; }
+                            prev = Some(sib);
+                        }
+                    }
+                    if let Some(prev_node) = prev {
+                        if lang.comment_types.contains(&prev_node.kind()) {
+                            intent_text = prev_node.utf8_text(source).unwrap_or("").to_string();
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+
+        // Datalog facts for this function
+        let mut fact_lines: Vec<String> = Vec::new();
+        {
+            let mut sym = SymbolTable::new();
+            let mut calls = Vec::new();
+            let mut accesses = Vec::new();
+            let mut declares = Vec::new();
+            let mut annotated = Vec::new();
+            let mut param_counts = Vec::new();
+            let mut positions: HashMap<u32, (u32, u32)> = HashMap::new();
+            let mut fn_cursor3 = root.walk();
+            for child in root.children(&mut fn_cursor3) {
+                if !lang.function_types.contains(&child.kind()) {
+                    continue;
+                }
+                if find_child_by_path(child, lang.function_name_path)
+                    .is_some_and(|n| node_text(n, source) == fn_name)
+                {
+                    crate::facts::collect_facts_inner(
+                        child, lang, source, &mut sym,
+                        &mut calls, &mut accesses, &mut declares,
+                        &mut annotated, &mut param_counts, &mut positions,
+                    );
+                    break;
+                }
+            }
+
+            let ds = crate::facts::evaluate_facts(
+                &mut sym, &calls, &accesses, &declares,
+                &annotated, &param_counts, &positions,
+            );
+            for d in &ds {
+                if d.function == fn_name {
+                    fact_lines.push(format!("- {} (line {})", d.message, d.line + 1));
+                }
+            }
+        }
+
+        // Build hover markdown
+        let mut md = format!("## `{}`\n\n", fn_name);
+
+        if !intent_text.is_empty() {
+            let trimmed = intent_text.trim_start_matches("//").trim_start_matches("#").trim_start_matches("/*").trim_start_matches("*/").trim();
+            md.push_str(&format!("**Intent:** {}\n\n", trimmed));
+        } else {
+            md.push_str("⚠️ **Missing intent comment**\n\n");
+        }
+
+        md.push_str(&format!("**Complexity:** {} (loop depth {})\n\n", label, loop_depth));
+
+        if !fact_lines.is_empty() {
+            md.push_str("**Datalog Facts:**\n\n");
+            for line in &fact_lines {
+                md.push_str(line);
+                md.push('\n');
+            }
+        } else {
+            md.push_str("✅ **No Datalog violations**\n\n");
+        }
+
+        // Run check pipeline to show other diagnostics for this function
+        {
+            let cfg = self.config.as_ref().cloned().unwrap_or_default();
+            let results = CheckPipeline::run(&parsed, &self.engine, &cfg);
+            let mut fn_diags: Vec<String> = Vec::new();
+            let mut fn_cursor4 = root.walk();
+            for child in root.children(&mut fn_cursor4) {
+                if !lang.function_types.contains(&child.kind()) {
+                    continue;
+                }
+                if find_child_by_path(child, lang.function_name_path)
+                    .is_some_and(|n| node_text(n, source) == fn_name)
+                {
+                    let rng = Range {
+                        start: Position {
+                            line: child.start_position().row as u32,
+                            character: child.start_position().column as u32,
+                        },
+                        end: Position {
+                            line: child.end_position().row as u32,
+                            character: child.end_position().column as u32,
+                        },
+                    };
+                    for d in &results {
+                        if ranges_overlap(&d.range, &rng) {
+                            fn_diags.push(format!(
+                                "- [{}] {}",
+                                d.source,
+                                d.message
+                            ));
+                        }
+                    }
+                    break;
+                }
+            }
+            if !fn_diags.is_empty() {
+                md.push_str("**Check Results:**\n\n");
+                for line in &fn_diags {
+                    md.push_str(line);
+                    md.push('\n');
+                }
+            }
+        }
+
+        let state_path = std::path::Path::new(".praetor").join("state-graph.json");
+        if state_path.exists() {
+            md.push_str("\n---\n⚠️ State graph not yet validated (Phase 7B)\n");
+        }
+        md.push_str(&format!("\n---\n🤖 5 Datalog rules active\n"));
+
+        Some(md)
     }
 
     fn compute_inlay_hints(&self, uri: &str, text: &str) -> Vec<InlayHint> {
@@ -345,6 +541,31 @@ impl LanguageServer for Backend {
             Some(text) => {
                 let lenses = self.compute_code_lenses(&uri, &text);
                 Ok(Some(lenses))
+            }
+            None => Ok(None),
+        }
+    }
+
+    async fn hover(
+        &self,
+        params: HoverParams,
+    ) -> Result<Option<Hover>> {
+        let uri = params.text_document_position_params.text_document.uri.to_string();
+        let pos = params.text_document_position_params.position;
+        let text = {
+            let docs = self.documents.lock().unwrap();
+            docs.get(&uri).map(|s| s.text.clone())
+        };
+        match text {
+            Some(text) => {
+                let content = self.compute_hover(&uri, &text, pos);
+                Ok(content.map(|c| Hover {
+                    contents: HoverContents::Markup(MarkupContent {
+                        kind: MarkupKind::Markdown,
+                        value: c,
+                    }),
+                    range: None,
+                }))
             }
             None => Ok(None),
         }
