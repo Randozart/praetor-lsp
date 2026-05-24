@@ -9,6 +9,7 @@ use super::CheckDiagnostic;
 const DECISION_KINDS: &[&str] = &[
     "if_statement",
     "if_expression",
+    "else_clause",
     "elif_clause",
     "for_statement",
     "for_expression",
@@ -92,7 +93,8 @@ pub fn check_metrics(
             diags.push(CheckDiagnostic {
                 range: fn_range,
                 message: format!(
-                    "[Metrics] `{}` has cyclomatic complexity {} (max {})",
+                    "[Metrics] `{}` has cyclomatic complexity {} (max {}) — \
+                     consider splitting into sub-functions",
                     fn_name, cyclomatic, config.cyclomatic_max,
                 ),
                 severity: DiagnosticSeverity::WARNING,
@@ -105,7 +107,8 @@ pub fn check_metrics(
             diags.push(CheckDiagnostic {
                 range: fn_range,
                 message: format!(
-                    "[Metrics] `{}` has cognitive complexity {} (max {})",
+                    "[Metrics] `{}` has cognitive complexity {} (max {}) — \
+                     consider early returns instead of else-if chains",
                     fn_name, cognitive, config.cognitive_max,
                 ),
                 severity: DiagnosticSeverity::WARNING,
@@ -131,7 +134,8 @@ pub fn check_metrics(
             diags.push(CheckDiagnostic {
                 range: fn_range,
                 message: format!(
-                    "[Metrics] `{}` has nesting depth {} (max {})",
+                    "[Metrics] `{}` has nesting depth {} (max {}) — \
+                     consider flattening with early returns",
                     fn_name, max_nesting, config.max_nesting_depth,
                 ),
                 severity: DiagnosticSeverity::HINT,
