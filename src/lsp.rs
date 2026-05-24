@@ -29,19 +29,6 @@ fn extension_from_uri(uri: &str) -> &str {
     }
 }
 
-/// Shadow for `extension_from_uri` — uses split-based approach.
-// praetor-shadow: original=extension_from_uri
-#[allow(dead_code)]
-fn extension_from_uri_shadow(uri: &str) -> &str {
-    let path = uri.trim_start_matches("file://");
-    let ext = path.rsplit('.').next().unwrap_or("");
-    if ext.is_empty() { "" } else {
-        // Find the dot position to return ".ext" format matching the original
-        let dot_pos = path.rfind('.').unwrap_or(0);
-        &path[dot_pos..]
-    }
-}
-
 fn uri_to_path(uri: &str) -> String {
     // Strip file:// prefix and URL-decode %XX sequences
     let raw = uri.trim_start_matches("file://");
@@ -663,35 +650,119 @@ fn ranges_overlap(a: &Range, b: &Range) -> bool {
 }
 
 fn apply_incremental_change(text: &str, change: &TextDocumentContentChangeEvent) -> String {
-    if let Some(range) = change.range {
-        let start = range.start;
-        let end = range.end;
-        let lines: Vec<&str> = text.split('\n').collect();
-        let mut result = String::new();
+    let range = match change.range {
+        Some(r) => r,
+        None => return change.text.clone(),
+    };
+    let start = range.start;
+    let end = range.end;
+    let lines: Vec<&str> = text.split('\n').collect();
+    let mut result = String::new();
 
-        for (i, line) in lines.iter().enumerate() {
-            let line_num = i as u32;
-            if line_num < start.line {
-                result.push_str(line);
-                result.push('\n');
-            } else if line_num == start.line {
-                let prefix = &line[..start.character as usize];
-                result.push_str(prefix);
-                result.push_str(&change.text);
-                if end.line == start.line {
-                    let suffix = &line[end.character as usize..];
-                    result.push_str(suffix);
-                }
-                result.push('\n');
-            } else if line_num > end.line {
-                result.push_str(line);
-                if line_num < lines.len() as u32 - 1 {
-                    result.push('\n');
-                }
+    // Phase 1: copy lines before the change
+    for (i, line) in lines.iter().enumerate() {
+        let line_num = i as u32;
+        if line_num >= start.line {
+            break;
+        }
+        result.push_str(line);
+        result.push('\n');
+    }
+
+    // Phase 2: apply the change at the target line
+    if let Some(line) = lines.get(start.line as usize) {
+        let prefix = &line[..start.character as usize];
+        result.push_str(prefix);
+        result.push_str(&change.text);
+        if end.line == start.line {
+            let suffix = &line[end.character as usize..];
+            result.push_str(suffix);
+        }
+        result.push('\n');
+    }
+
+    // Phase 3: copy lines after the change
+    for i in (end.line as usize + 1)..lines.len() {
+        result.push_str(lines[i]);
+        if i < lines.len() - 1 {
+            result.push('\n');
+        }
+    }
+
+    result
+}
+
+#[cfg(test)]
+mod bench_apply_incremental_change {
+    use std::time::Instant;
+
+    use tower_lsp::lsp_types::{Position, Range, TextDocumentContentChangeEvent};
+
+    use super::*;
+
+    fn test_cases() -> Vec<(&'static str, TextDocumentContentChangeEvent)> {
+        vec![
+            // Insert at start
+            ("hello\nworld\nfoo\nbar\n", TextDocumentContentChangeEvent {
+                range: Some(Range {
+                    start: Position { line: 0, character: 0 },
+                    end: Position { line: 0, character: 0 },
+                }),
+                range_length: None,
+                text: "int main() {\n".into(),
+            }),
+            // Replace in middle
+            ("hello\nworld\nfoo\nbar\n", TextDocumentContentChangeEvent {
+                range: Some(Range {
+                    start: Position { line: 1, character: 0 },
+                    end: Position { line: 2, character: 3 },
+                }),
+                range_length: None,
+                text: "replaced\n".into(),
+            }),
+            // Delete last line
+            ("hello\nworld\nfoo\nbar\n", TextDocumentContentChangeEvent {
+                range: Some(Range {
+                    start: Position { line: 3, character: 0 },
+                    end: Position { line: 3, character: 3 },
+                }),
+                range_length: None,
+                text: String::new(),
+            }),
+            // Full replacement
+            ("old content\n", TextDocumentContentChangeEvent {
+                range: None,
+                range_length: None,
+                text: "brand new content\n".into(),
+            }),
+        ]
+    }
+
+    #[test]
+    fn bench_comparison() {
+        let cases = test_cases();
+        let iterations = 500_000;
+
+        for _ in 0..1000 { // warmup
+            for (text, change) in &cases {
+                let _ = apply_incremental_change(text, change);
             }
         }
-        result
-    } else {
-        change.text.clone()
+
+        let start = Instant::now();
+        for _ in 0..iterations {
+            for (text, change) in &cases {
+                let _ = apply_incremental_change(text, change);
+            }
+        }
+        let promoted_dur = start.elapsed();
+
+        let total_ops = iterations as f64 * cases.len() as f64;
+        let promoted_ns = promoted_dur.as_nanos() as f64 / total_ops;
+
+        println!();
+        println!("=== Shadow Verification: apply_incremental_change (promoted) ===");
+        println!("  promoted: {:7.1} ns/op", promoted_ns);
+        println!();
     }
 }
