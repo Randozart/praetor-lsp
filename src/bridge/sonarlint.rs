@@ -1,9 +1,8 @@
 use std::path::Path;
 
 use crate::checks::CheckDiagnostic;
-use crate::downloader::cache_root;
 
-use super::Bridge;
+use super::{tool_is_available, Bridge};
 
 /// SonarLint bridge.
 ///
@@ -20,13 +19,7 @@ impl Bridge for SonarLintBridge {
     }
 
     fn is_available(&self) -> bool {
-        let cache = cache_root();
-        let jar_path = cache.join("bin").join("sonarlint-language-server");
-        if jar_path.exists() {
-            return true;
-        }
-        let jar_path2 = cache.join("lib").join("sonarlint-language-server.jar");
-        jar_path2.exists()
+        tool_is_available("java")
     }
 
     fn run(&self, _file_path: &Path, _source: &[u8]) -> Vec<CheckDiagnostic> {

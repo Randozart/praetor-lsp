@@ -5,9 +5,8 @@ use serde::Deserialize;
 use tower_lsp::lsp_types::DiagnosticSeverity;
 
 use crate::checks::CheckDiagnostic;
-use crate::downloader::cache_root;
 
-use super::{bridge_diagnostic, Bridge};
+use super::{bridge_diagnostic, resolve_tool, tool_is_available, Bridge};
 
 #[derive(Debug, Deserialize)]
 struct InferReport(Vec<InferBug>);
@@ -31,14 +30,11 @@ impl Bridge for InferBridge {
     }
 
     fn is_available(&self) -> bool {
-        let cache = cache_root();
-        let bin_path = cache.join("bin").join("infer");
-        bin_path.exists()
+        tool_is_available("infer")
     }
 
     fn run(&self, file_path: &Path, _source: &[u8]) -> Vec<CheckDiagnostic> {
-        let cache = cache_root();
-        let bin_path = cache.join("bin").join("infer");
+        let bin_path = resolve_tool("infer");
         let parent = file_path.parent().unwrap_or_else(|| Path::new("."));
 
         // Run infer on the file

@@ -5,9 +5,8 @@ use serde::Deserialize;
 use tower_lsp::lsp_types::DiagnosticSeverity;
 
 use crate::checks::CheckDiagnostic;
-use crate::downloader::cache_root;
 
-use super::{bridge_diagnostic, Bridge};
+use super::{bridge_diagnostic, resolve_tool, tool_is_available, Bridge};
 
 #[derive(Debug, Deserialize)]
 struct SemgrepOutput {
@@ -45,14 +44,11 @@ impl Bridge for SemgrepBridge {
     }
 
     fn is_available(&self) -> bool {
-        let cache = cache_root();
-        let bin_path = cache.join("bin").join("semgrep");
-        bin_path.exists()
+        tool_is_available("semgrep")
     }
 
     fn run(&self, file_path: &Path, _source: &[u8]) -> Vec<CheckDiagnostic> {
-        let cache = cache_root();
-        let bin_path = cache.join("bin").join("semgrep");
+        let bin_path = resolve_tool("semgrep");
 
         let output = match Command::new(&bin_path)
             .args(["--json", "--no-git-ignore", "--no-autofix"])
