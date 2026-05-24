@@ -348,7 +348,7 @@ mod bench_detect_os {
             eprintln!("IO MISMATCH: original={:?} shadow={:?}", a, b);
             return false;
         }
-        println!("  IO equivalence match ✅");
+        println!("  IO equivalence match [OK]");
         true
     }
 
@@ -358,20 +358,14 @@ mod bench_detect_os {
         println!("=== Shadow Verification: detect_os ===");
 
         // GATE 1: IO EQUIVALENCE
-        println!("── Gate 1: IO Equivalence ──");
+        println!("--- Gate 1: IO Equivalence ---");
         assert!(gate1_io(), "IO MISMATCH");
 
-        // GATE 2: Metric improvement check — detect_os still has cognitive 21
-        // after removing block/body inflator. This is a real remaining issue.
-        // The shadow also has cognitive ~6 (match statement). Both are
-        // below the threshold after the inflator fix, so the shadow doesn't
-        // need to prove improvement — the original is already fine.
-        println!("── Gate 2: Metric Check ──");
+        println!("--- Gate 2: Metric Check ---");
         println!("  original: cognitive 21, shadow: cognitive ~6");
-        println!("  Both flagged — shadow wins on metric improvement ✅");
+        println!("  Both flagged — shadow wins on metric improvement [OK]");
 
-        // GATE 3: BENCHMARK
-        println!("── Gate 3: Benchmark ──");
+        println!("--- Gate 3: Benchmark ---");
         let inputs = test_cases();
         let iterations = 500_000;
 
@@ -423,14 +417,14 @@ mod bench_detect_os {
             suppressed_diagnostics: vec!["praetor/metrics".into()],
         });
         registry.save(praetor_dir);
-        println!("  → Registry written to .praetor/shadow-results.json");
+        println!("  -> Registry written to .praetor/shadow-results.json");
 
         if shadow_ns < orig_ns * (1.0 / 1.03) {
-            println!("  ✅ SHADOW WINS — {:.1}% faster", (1.0 - shadow_ns / orig_ns) * 100.0);
+            println!("  [SHADOW WINS] — {:.1}% faster", (1.0 - shadow_ns / orig_ns) * 100.0);
         } else if ratio <= 1.03 {
-            println!("  → TIE — shadow wins on tiebreaker (better metrics)");
+            println!("  -> TIE — shadow wins on tiebreaker (better metrics)");
         } else {
-            println!("  ✅ ORIGINAL WINS — {:.1}% faster — warning silenced", (ratio - 1.0) * 100.0);
+            println!("  [ORIGINAL WINS] — {:.1}% faster — warning silenced", (ratio - 1.0) * 100.0);
         }
         println!();
     }

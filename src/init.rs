@@ -140,7 +140,7 @@ mod bench_find_project_root {
             });
         }
         registry.save(praetor_dir);
-        println!("  → Registered 6 O(n²) patterns as inherent");
+        println!("  -> Registered 6 O(n²) patterns as inherent");
         println!();
     }
 }

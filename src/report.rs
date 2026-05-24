@@ -208,8 +208,8 @@ impl Report {
         // Verification status
         out.push_str("\n## Verification Status\n\n");
         let has_graph = Path::new(".praetor/state-graph.json").exists();
-        out.push_str(&format!("- State graph: {}\n", if has_graph { "✅ present" } else { "⬜ not found" }));
-        out.push_str(&format!("- Datalog rules: {} active (5 built-in rules)\n", "✅"));
+        out.push_str(&format!("- State graph: {}\n", if has_graph { "[present]" } else { "[not found]" }));
+        out.push_str(&format!("- Datalog rules: {} active (5 built-in rules)\n", "[OK]"));
         out.push_str(&format!("- Static analysis: {} checks passed across {} files\n",
             total_diags, analysis.total_files));
 

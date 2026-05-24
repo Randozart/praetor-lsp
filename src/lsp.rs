@@ -172,7 +172,7 @@ impl Backend {
                 .collect();
 
             let (symbol, status) = if fn_diags.is_empty() {
-                ("✅", "verified".to_string())
+                ("[OK]", "verified".to_string())
             } else {
                 let mut parts = Vec::new();
                 let errors = fn_diags.iter().filter(|d| {
@@ -195,7 +195,7 @@ impl Backend {
                     parts.push(format!("{} hint(s)", hints));
                 }
 
-                let icon = if errors > 0 { "⛔" } else if warnings > 0 { "⚠️" } else { "💡" };
+                let icon = if errors > 0 { "[ERR]" } else if warnings > 0 { "[WARN]" } else { "[OK]" };
                 (icon, parts.join(", "))
             };
 
@@ -328,7 +328,7 @@ impl Backend {
             let trimmed = intent_text.trim_start_matches("//").trim_start_matches("#").trim_start_matches("/*").trim_start_matches("*/").trim();
             md.push_str(&format!("**Intent:** {}\n\n", trimmed));
         } else {
-            md.push_str("⚠️ **Missing intent comment**\n\n");
+            md.push_str("[WARN] **Missing intent comment**\n\n");
         }
 
         md.push_str(&format!("**Complexity:** {} (loop depth {})\n\n", label, loop_depth));
@@ -340,7 +340,7 @@ impl Backend {
                 md.push('\n');
             }
         } else {
-            md.push_str("✅ **No Datalog violations**\n\n");
+            md.push_str("[OK] **No Datalog violations**\n\n");
         }
 
         // Run check pipeline to show other diagnostics for this function
@@ -389,9 +389,9 @@ impl Backend {
 
         let state_path = std::path::Path::new(".praetor").join("state-graph.json");
         if state_path.exists() {
-            md.push_str("\n---\n⚠️ State graph not yet validated (Phase 7B)\n");
+            md.push_str("\n---\n[WARN] State graph not yet validated (Phase 7B)\n");
         }
-        md.push_str(&format!("\n---\n🤖 5 Datalog rules active\n"));
+        md.push_str(&format!("\n---\n[DATALOG] 5 rules active\n"));
 
         Some(md)
     }
@@ -428,7 +428,7 @@ impl Backend {
                         character: d.range.start.character,
                     },
                     label: InlayHintLabel::LabelParts(vec![InlayHintLabelPart {
-                        value: format!(" ⚡ {}", label),
+                        value: format!(" [Complexity] {}", label),
                         tooltip: Some(InlayHintLabelPartTooltip::String(msg)),
                         ..Default::default()
                     }]),
@@ -782,7 +782,7 @@ mod bench_apply_incremental_change {
             suppressed_diagnostics: vec!["praetor/metrics".into()],
         });
         registry.save(praetor_dir);
-        println!("  → Registry written to .praetor/shadow-results.json");
+        println!("  -> Registry written to .praetor/shadow-results.json");
         println!();
     }
 }

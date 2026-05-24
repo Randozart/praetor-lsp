@@ -62,9 +62,9 @@ fn print_human(
     failures: &[(&str, &crate::report::FileResult, &crate::checks::CheckDiagnostic)],
 ) {
     if failures.is_empty() {
-        println!("✅ Praetor validation passed — no unproven diagnostics found");
+        println!("[PASS] Praetor validation passed — no unproven diagnostics found");
     } else {
-        println!("❌ Praetor validation failed — {} unproven diagnostic(s):", failures.len());
+        println!("[FAIL] Praetor validation failed — {} unproven diagnostic(s):", failures.len());
         for (path, _, d) in failures {
             println!("  {}:{} | {} | {}", path, d.range.start.line + 1, d.source, d.message);
         }

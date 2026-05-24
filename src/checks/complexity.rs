@@ -79,7 +79,7 @@ fn analyze_function(
                 character: pos.character + 1,
             },
         },
-        message: format!("⚡ {} — {}", label, detail),
+        message: format!("[Complexity] {} — {}", label, detail),
         severity: if loop_depth >= 2 || rec {
             DiagnosticSeverity::WARNING
         } else {
