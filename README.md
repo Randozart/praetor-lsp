@@ -11,7 +11,7 @@ LSP-capable editor.
 > **Phase of development:** Early but functional. Praetor self-verifies (it runs
 > on its own source code) and produces diagnostics on any supported language.
 > External tool bridges (Semgrep, Infer) are integrated but require the
-> corresponding CLI tools to be installed separately. See [ENFORCEMENT-PLAN.md](./ENFORCEMENT-PLAN.md)
+> corresponding CLI tools to be installed separately. See [docs/ENFORCEMENT-PLAN.md](./docs/ENFORCEMENT-PLAN.md)
 > for the full roadmap.
 
 ---
@@ -96,8 +96,8 @@ praetor init
 ```toml
 [intent]
 enabled = true
-severity = "error"
-exempt_patterns = ["fn get_.*", "fn set_.*", "fn new\\(", "fn main\\(", "fn test_.*"]
+severity = "hint"
+exempt_patterns = ["^get_.*", "^set_.*", "^new$", "^main$", "^test_.*", "^default$", "^into$", "^from$"]
 
 [complexity]
 big_o_threshold = "O(n²)"
@@ -117,6 +117,21 @@ private_data_labels = ["private", "secret", "password", "token"]
 entry_points = ["main", "run", "start", "handle"]
 log_functions = ["log", "log_access", "audit"]
 ```
+
+---
+
+## AI integration
+
+Praetor is designed to work with AI coding assistants. The project includes
+two key documents for configuring an AI agent:
+
+- **`AGENTS.md`** (project root or `~/.config/opencode/`) — enforcement rules,
+  the three-gate verification path, and what the AI can and cannot do.
+- **[docs/SETTING-UP.md](./docs/SETTING-UP.md)** — step-by-step LSP setup,
+  project initialization, and troubleshooting.
+
+For full details of the development process, see [docs/LESSONS.md](./docs/LESSONS.md)
+and [docs/ENFORCEMENT-PLAN.md](./docs/ENFORCEMENT-PLAN.md).
 
 ---
 
@@ -165,8 +180,8 @@ Praetor enforces **four pillars** of verification:
 4. **Datalog Facts** – Invariants extracted from the AST and checked against
    rules shipped with Praetor. Mathematical, not probabilistic.
 
-For full details, see [QUADRUPLE-BOOKKEEPING.md](./QUADRUPLE-BOOKKEEPING.md)
-and [SHADOW-VERIFICATION.md](./SHADOW-VERIFICATION.md).
+For full details, see [docs/QUADRUPLE-BOOKKEEPING.md](./docs/QUADRUPLE-BOOKKEEPING.md)
+and [docs/SHADOW-VERIFICATION.md](./docs/SHADOW-VERIFICATION.md).
 
 ---
 

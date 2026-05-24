@@ -1,6 +1,5 @@
 # Rust build artifacts
 target/
-Cargo.lock
 
 # Downloaded external binaries managed by praetor-lsp itself
 lib/*.jar
