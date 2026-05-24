@@ -5,6 +5,7 @@ use tower_lsp::LspService;
 use tracing_subscriber::EnvFilter;
 
 mod ast;
+mod bridge;
 mod checks;
 mod config;
 mod downloader;
@@ -89,8 +90,15 @@ async fn run_lsp() {
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
 
+    // Build external tool bridges
+    let bridges: Vec<Box<dyn bridge::Bridge + Send + Sync>> = vec![
+        Box::new(bridge::semgrep::SemgrepBridge),
+        Box::new(bridge::infer::InferBridge),
+        Box::new(bridge::sonarlint::SonarLintBridge),
+    ];
+
     let (service, socket) = LspService::new(move |client| {
-        lsp::Backend::new(client, engine.clone(), cfg.clone())
+        lsp::Backend::new(client, engine.clone(), cfg.clone(), bridges)
     });
 
     tracing::info!("praetor starting on stdio");

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::Arc;
 
 use tower_lsp::lsp_types::*;
@@ -6,6 +7,7 @@ use tower_lsp::{jsonrpc::Result, Client, LanguageServer};
 
 use crate::ast::{AstEngine, find_child_by_path, max_loop_depth, node_text};
 use crate::ast::has_recursion;
+use crate::bridge::{run_all_bridges, Bridge};
 use crate::checks::CheckPipeline;
 use crate::config::PraetorConfig;
 use crate::facts::SymbolTable;
@@ -27,20 +29,45 @@ fn extension_from_uri(uri: &str) -> &str {
     }
 }
 
+fn uri_to_path(uri: &str) -> String {
+    // Strip file:// prefix and URL-decode %XX sequences
+    let raw = uri.trim_start_matches("file://");
+    // Simple decode: %20 -> space, %23 -> #, etc.
+    let mut decoded = String::new();
+    let mut chars = raw.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '%' {
+            let hi = chars.next().and_then(|c| c.to_digit(16)).unwrap_or(0);
+            let lo = chars.next().and_then(|c| c.to_digit(16)).unwrap_or(0);
+            decoded.push(char::from((hi * 16 + lo) as u8));
+        } else {
+            decoded.push(ch);
+        }
+    }
+    decoded
+}
+
 pub struct Backend {
     client: Client,
     engine: Arc<AstEngine>,
     config: Option<PraetorConfig>,
     documents: std::sync::Mutex<std::collections::HashMap<String, DocumentState>>,
+    bridges: Vec<Box<dyn Bridge + Send + Sync>>,
 }
 
 impl Backend {
-    pub fn new(client: Client, engine: Arc<AstEngine>, config: Option<PraetorConfig>) -> Self {
+    pub fn new(
+        client: Client,
+        engine: Arc<AstEngine>,
+        config: Option<PraetorConfig>,
+        bridges: Vec<Box<dyn Bridge + Send + Sync>>,
+    ) -> Self {
         Self {
             client,
             engine,
             config,
             documents: std::sync::Mutex::new(std::collections::HashMap::new()),
+            bridges,
         }
     }
 
@@ -66,7 +93,15 @@ impl Backend {
             None => return vec![],
         };
 
-        let results = CheckPipeline::run(&parsed, &self.engine, &cfg, self.praetor_dir().as_deref());
+        let mut results = CheckPipeline::run(&parsed, &self.engine, &cfg, self.praetor_dir().as_deref());
+
+        // Run external tool bridges (Semgrep, Infer, SonarLint)
+        let file_path_str = uri_to_path(uri);
+        let file_path = Path::new(&file_path_str);
+        if file_path.is_file() {
+            results.extend(run_all_bridges(&self.bridges, file_path, text.as_bytes()));
+        }
+
         results.into_iter().map(|cd| {
             let severity = match cd.severity {
                 DiagnosticSeverity::ERROR => Some(DiagnosticSeverity::ERROR),
