@@ -42,10 +42,9 @@ Add to `~/.config/opencode/opencode.json` or `opencode.jsonc`:
       "command": ["/path/to/praetor"],
       "extensions": [".py", ".js", ".jsx", ".ts", ".tsx", ".go", ".c", ".h",
                      ".cpp", ".cc", ".cxx", ".hpp", ".rs", ".java"]
-    }
-  }
-}
 ```
+
+This covers **9 languages**: Python, JavaScript, TypeScript (TSX), Go, C, C++, Rust, Java.
 
 ### In VS Code, Neovim, Helix, etc.
 

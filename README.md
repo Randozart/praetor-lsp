@@ -22,7 +22,8 @@ LSP-capable editor to force any AI agent working on a project to be thorough and
 ## Features
 
 - **9 languages** — Python, JavaScript, TypeScript, TSX, Go, C, C++, Rust, Java
-- **14 tree-sitter parsers** — 9 languages × grammar variants (JS/JSX, TS/TSX, C/C++, etc.)
+- **14 tree-sitter parsers** — 9 languages across 14 file extensions
+  (.py, .js, .jsx, .ts, .tsx, .go, .c, .h, .cpp, .cc, .cxx, .hpp, .rs, .java)
 - **Big-O complexity analysis** — loop nesting depth, recursion detection, linear ops inside loops
 - **Strict Intent Mode** — doc comment enforcement before every function
 - **Datalog invariant engine** — 5 built-in rules (privacy, reachability, parameter limits, data leaks) powered by [crepe](https://crates.io/crates/crepe)
