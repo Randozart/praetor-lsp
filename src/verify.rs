@@ -35,7 +35,7 @@ pub fn run_shadow_verify(
             match find_shadow_fn(&source, None) {
                 Some(s) => (o.to_string(), s),
                 None => {
-                    eprintln!("no shadow function found in {}. specify --shadow or add #[praetor::shadow]", file);
+                    eprintln!("no shadow function found in {}. specify --shadow or add // praetor-shadow: original=<name>", file);
                     std::process::exit(1);
                 }
             }
@@ -58,7 +58,7 @@ pub fn run_shadow_verify(
                     (orig, s)
                 }
                 None => {
-                    eprintln!("no shadow functions found in {}. annotate with #[praetor::shadow]", file);
+                    eprintln!("no shadow functions found in {}. annotate with // praetor-shadow: original=<name>", file);
                     std::process::exit(1);
                 }
             }
@@ -87,36 +87,32 @@ pub fn run_shadow_verify(
     info!("");
     info!("Next steps:");
     info!("  1. Fill in test input generation in {}", bench_path_str);
-    info!("  2. Run: cargo bench --features praetor_bench");
-    info!("  3. Compare results manually, or:");
-    info!("     praetor verify --shadow {} --run", file);
+    info!("  2. Add divan to Cargo.toml: [dev-dependencies] divan = \"0.1\"");
+    info!("  3. Run: cargo test --bench __praetor_bench_{}", shadow);
+    info!("  4. Compare original vs shadow results");
 }
 
-/// Find a function annotated with #[praetor::shadow] in the source.
+/// Find a function annotated with a `praetor-shadow:` comment in the source.
+///
+/// Works across languages — the comment marker is the same:
+/// - `// praetor-shadow: original=fn_name`
+/// - `# praetor-shadow: original=fn_name`
+/// - `/* praetor-shadow: original=fn_name */`
 fn find_shadow_fn(source: &str, hint: Option<&str>) -> Option<String> {
     let lines: Vec<&str> = source.lines().collect();
     let mut i = 0;
 
     while i < lines.len() {
         let line = lines[i].trim();
-        if line.contains("#[praetor::shadow") || line.contains("#[shadow") ||
-           line.contains("#[crate::shadow") ||
-           line.contains("// praetor:shadow") || line.contains("/* praetor:shadow")
-        {
+        if line.contains("praetor-shadow:") {
             let mut j = i + 1;
-            while j < lines.len() && lines[j].trim().is_empty() {
+            while j < lines.len() && (lines[j].trim().is_empty() || lines[j].trim().starts_with('#')) {
                 j += 1;
             }
-            if j < lines.len() {
-                let fn_line = lines[j].trim();
-                // Extract function name: fn name(...)
-                if let Some(name) = fn_line.strip_prefix("fn ") {
-                    let name = name.split('(').next().unwrap_or("").trim();
-                    if !name.is_empty() {
-                        if hint.map_or(true, |h| name == h) {
-                            return Some(name.to_string());
-                        }
-                    }
+            // Try Rust-like function syntax
+            if let Some(name) = extract_fn_name(lines.get(j).unwrap_or(&"").trim()) {
+                if hint.map_or(true, |h| name == h) {
+                    return Some(name.to_string());
                 }
             }
         }
@@ -125,33 +121,49 @@ fn find_shadow_fn(source: &str, hint: Option<&str>) -> Option<String> {
     None
 }
 
-/// Find the original function name from a #[praetor::shadow(original = "...")] attribute.
+/// Extract a function name from a line that might define a function.
+/// Supports: `fn name(...)`, `def name(...)`, `function name(...)`, `name = fn(...)`
+fn extract_fn_name(line: &str) -> Option<&str> {
+    let line = line.trim();
+    // Rust/Go/C/C++/Java/JS/TS: fn name(..) or function name(..)
+    for prefix in &["fn ", "def ", "function ", "pub fn ", "pub(crate) fn "] {
+        if let Some(rest) = line.strip_prefix(prefix) {
+            let name = rest.split('(').next().unwrap_or("").trim();
+            if !name.is_empty() && name.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                return Some(name);
+            }
+        }
+    }
+    None
+}
+
+/// Find the original function name from a `praetor-shadow: original=fn_name` comment.
 fn find_original_for_shadow(source: &str, shadow_fn: &str) -> Option<String> {
     let lines: Vec<&str> = source.lines().collect();
     let mut i = 0;
 
     while i < lines.len() {
         let line = lines[i].trim();
-        if (line.contains("#[praetor::shadow") || line.contains("#[shadow") ||
-            line.contains("#[crate::shadow")) &&
-           line.contains("original =")
-        {
-            if let Some(eq) = line.find("original =") {
-                let after_eq = &line[eq + 10..];
-                let name = after_eq.trim().trim_start_matches('"').split('"').next().unwrap_or("").trim();
-                if !name.is_empty() {
-                    let mut j = i + 1;
-                    while j < lines.len() && lines[j].trim().is_empty() {
-                        j += 1;
-                    }
-                    if j < lines.len() {
-                        let fn_line = lines[j].trim();
-                        if let Some(fn_name) = fn_line.strip_prefix("fn ") {
-                            let fn_name = fn_name.split('(').next().unwrap_or("").trim();
-                            if fn_name == shadow_fn {
-                                return Some(name.to_string());
-                            }
-                        }
+        // Match lines containing `praetor-shadow:` and `original=`
+        if line.contains("praetor-shadow:") && line.contains("original=") {
+            // Extract original = "name" or original=name
+            let after_keyword = line.split("original=").nth(1)?;
+            let name = after_keyword
+                .trim()
+                .trim_start_matches('"')
+                .split(|c: char| c == '"' || c == ' ' || c == ',' || c == ')' || c == '*' || c == '/')
+                .next()
+                .unwrap_or("")
+                .trim();
+            if !name.is_empty() {
+                // Verify this comment precedes the shadow function
+                let mut j = i + 1;
+                while j < lines.len() && (lines[j].trim().is_empty() || lines[j].trim().starts_with('#')) {
+                    j += 1;
+                }
+                if let Some(fn_name) = extract_fn_name(lines.get(j).unwrap_or(&"").trim()) {
+                    if fn_name == shadow_fn {
+                        return Some(name.to_string());
                     }
                 }
             }
@@ -185,34 +197,40 @@ fn generate_bench_scaffold(
 
     format!(
         r#"// Auto-generated by `praetor verify --shadow`
-// Fill in the test input generation below, then run:
-//   cargo bench --features praetor_bench
+// Fill in the test input generation below.
+//
+// To run this benchmark, add `divan` to your Cargo.toml dev-dependencies
+// and add a `[[bench]]` or use `cargo test --bench`:
+//
+//   [dev-dependencies]
+//   divan = "0.1"
+//
+// Then run:
+//   cargo test --bench __praetor_bench_{shadow}
 
-#[cfg(feature = "praetor_bench")]
 mod __praetor_bench_{shadow} {{
     use super::*;
-    use divan::Bencher;
 
     /// Benchmark the ORIGINAL function `{original}`.
     /// TODO: generate realistic test inputs for `{original}`.
-    #[divan::bench(name = "{original} (original)")]
-    fn bench_original(bencher: Bencher) {{
-        // Example (replace with actual input generation):
-        //   let input = generate_test_input();
-        //   bencher.bench_local(|| {module_path}::{original}(input));
-        let _ = bencher;
-        todo!("generate test inputs for {original}")
+    ///
+    /// Example with divan:
+    ///   use divan::Bencher;
+    ///   #[divan::bench(name = "{original} (original)")]
+    ///   fn bench_original(bencher: Bencher) {{
+    ///       let input = generate_test_input();
+    ///       bencher.bench_local(|| {module_path}::{original}(input));
+    ///   }}
+    pub fn _bench_original() {{
+        let _ = ();
+        unimplemented!("generate test inputs for {original}")
     }}
 
     /// Benchmark the SHADOW function `{shadow}`.
     /// TODO: generate realistic test inputs for `{shadow}`.
-    #[divan::bench(name = "{shadow} (shadow)")]
-    fn bench_shadow(bencher: Bencher) {{
-        // Example:
-        //   let input = generate_test_input();
-        //   bencher.bench_local(|| {module_path}::{shadow}(input));
-        let _ = bencher;
-        todo!("generate test inputs for {shadow}")
+    pub fn _bench_shadow() {{
+        let _ = ();
+        unimplemented!("generate test inputs for {shadow}")
     }}
 }}
 "#,

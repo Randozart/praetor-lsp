@@ -24,43 +24,29 @@ human judgement calls. The benchmark is the single source of truth.
 
 ## How It Works
 
-### 1. Prerequisite: declaring a function as `perf_critical`
+### 1. Marking a shadow function
 
-Perf-critical functions are declared in `.praetor/benchmarks.toml`:
+The LLM (or human) writes a refactored version of a flagged function and
+precedes it with a `praetor-shadow:` comment declaring the original:
 
-```toml
-[benchmarks.collect_facts]
-path = "src/facts/mod.rs"
-function = "collect_facts"
-params = 10                # current count — triggers param-count warning
-perf_critical = true       # shadow test required before any refactor
-
-[benchmarks.check_architecture]
-path = "src/checks/architecture.rs"
-function = "check_architecture"
-cyclomatic = 23
-perf_critical = true
-
-[benchmarks.apply_incremental_change]
-path = "src/lsp.rs"
-function = "apply_incremental_change"
-nesting_depth = 13
-perf_critical = true
-
-[benchmarks.install_tool]
-path = "src/downloader.rs"
-function = "install_tool"
-line_length = 119
-perf_critical = true
+```rust
+// praetor-shadow: original=collect_facts
+fn collect_facts_v2(node: Node, ctx: &mut FactContext) {
+    // refactored logic
+}
 ```
 
-A function is `perf_critical` if:
-- It is called on the hot path (every keystroke, every file save)
-- It allocates or transforms significant data
-- It is recursive or deeply nested with early-return guards
+The comment syntax is **language-agnostic** — it works everywhere:
 
-Praetor **auto-suggests** `perf_critical = true` for functions that are
-both flagged **and** called inside LSP request handlers.
+| Language | Comment style | Example |
+|----------|--------------|---------|
+| Rust, Go, C, C++, Java, JS/TS | `//` | `// praetor-shadow: original=foo` |
+| Python | `#` | `# praetor-shadow: original=foo` |
+| Any | `/* */` | `/* praetor-shadow: original=foo */` |
+
+The `original=` value is the name of the function being refactored.
+If omitted, the tool guesses it by stripping `_shadow`, `_v2`, or `_v3`
+suffixes from the shadow function name.
 
 ---
 
@@ -81,19 +67,17 @@ fn collect_facts(
 ) { ... }
 
 // Shadow (refactored: 2 params via FactContext)
-#[praetor::shadow]
+// praetor-shadow: original=collect_facts
 fn collect_facts_v2(
     node: Node,
     ctx: &mut FactContext,
-) {
-    // same logic, but reads/writes through ctx
-}
+) { ... }
 ```
 
-The `#[praetor::shadow]` proc-macro attribute:
-1. Registers the shadow function in the benchmark harness
-2. Links it to the original via the `.praetor/benchmarks.toml` entry
-3. Generates a microbenchmark that calls both versions with identical input
+The `// praetor-shadow:` comment is a language-agnostic marker that
+`praetor verify --shadow` discovers at runtime by scanning the source
+file line by line. It works for Rust, Python, JavaScript, Go, C, C++,
+Java — any language that uses `//`, `#`, or `/* */` comments.
 
 ---
 
@@ -145,7 +129,7 @@ Or, if the shadow is faster:
                         ▼
 ┌─────────────────────────────────────────────────────┐
 │ 2. LLM/human writes shadow function                 │
-│    #[praetor::shadow] with refactored logic          │
+│    // praetor-shadow: original=collect_facts        │
 └─────────────────────────────────────────────────────┘
                         │
                         ▼
@@ -212,9 +196,9 @@ re-run `praetor verify`.
 
 ## What This Costs
 
-- **One proc-macro crate** (`praetor-derive`) for `#[praetor::shadow]`
-- **One benchmark harness** (wraps `divan` or `criterion`)
+- **Zero dependencies** — comment-based, no proc-macro, no build-time overhead
 - **One CLI command** (`praetor verify --shadow`)
+- **Language-agnostic** — works for Rust, Python, JavaScript, Go, C, C++, Java
 - **Time**: ~10 seconds per verification (build + run 10k iterations)
 
 The key insight: **you don't pre-benchmark everything.** You only build

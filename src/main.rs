@@ -4,9 +4,6 @@ use clap::{Parser, Subcommand};
 use tower_lsp::LspService;
 use tracing_subscriber::EnvFilter;
 
-// Re-export so #[praetor::shadow] resolves within the crate
-pub use praetor_derive::shadow;
-
 mod ast;
 mod bridge;
 mod checks;
