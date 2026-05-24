@@ -1,11 +1,16 @@
 pub mod complexity;
 pub mod facts;
 pub mod intent;
+pub mod state_graph;
+
+use std::path::Path;
 
 use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity, Range};
 
 use crate::ast::{AstEngine, ParsedFile};
 use crate::config::PraetorConfig;
+
+use self::state_graph::StateGraph;
 
 /// A single result from a check.
 #[derive(Debug, Clone)]
@@ -32,10 +37,12 @@ impl From<CheckDiagnostic> for Diagnostic {
 pub struct CheckPipeline;
 
 impl CheckPipeline {
+    /// Run all checks. Optionally pass the path to .praetor/ for state graph discovery.
     pub fn run(
         parsed: &ParsedFile,
         _engine: &AstEngine,
         config: &PraetorConfig,
+        praetor_dir: Option<&Path>,
     ) -> Vec<CheckDiagnostic> {
         let mut results = Vec::new();
 
@@ -55,6 +62,16 @@ impl CheckPipeline {
 
         // Datalog facts check (always runs — built-in rules)
         results.extend(facts::check_facts(parsed));
+
+        // State graph validation (if .praetor/state-graph.json exists)
+        if let Some(dir) = praetor_dir {
+            let state_graph_path = dir.join("state-graph.json");
+            if state_graph_path.is_file() {
+                if let Some(graph) = StateGraph::load(&state_graph_path) {
+                    results.extend(state_graph::check_state_graph(parsed, &graph));
+                }
+            }
+        }
 
         results
     }

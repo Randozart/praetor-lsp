@@ -1,0 +1,13 @@
+{
+  "states": ["idle", "connecting", "authenticated", "active", "error"],
+  "initial_state": "idle",
+  "transitions": [
+    {"from": "idle", "to": "connecting", "action": "connect"},
+    {"from": "connecting", "to": "authenticated", "action": "authenticate"},
+    {"from": "connecting", "to": "error", "action": "fail"},
+    {"from": "authenticated", "to": "active", "action": "start"},
+    {"from": "authenticated", "to": "error", "action": "fail"},
+    {"from": "active", "to": "idle", "action": "disconnect"},
+    {"from": "error", "to": "idle", "action": "reset"}
+  ]
+}

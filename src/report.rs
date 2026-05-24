@@ -37,6 +37,14 @@ impl Report {
         }
     }
 
+    fn praetor_dir(&self) -> Option<std::path::PathBuf> {
+        self.config.as_ref().and_then(|cfg| {
+            cfg.path.as_ref().and_then(|p| {
+                p.parent().map(|dir| dir.join(".praetor"))
+            })
+        })
+    }
+
     fn analyze_project(&self, target: &str) -> ProjectAnalysis {
         let mut analysis = ProjectAnalysis {
             root: target.to_string(),
@@ -91,7 +99,7 @@ impl Report {
             };
 
             if let Some(parsed) = self.engine.parse(&ext, &source) {
-                let results = CheckPipeline::run(&parsed, &self.engine, &cfg);
+                let results = CheckPipeline::run(&parsed, &self.engine, &cfg, self.praetor_dir().as_deref());
 
                 let fn_count = count_functions(&parsed.tree.root_node(), parsed.config) as u64;
                 analysis.total_functions += fn_count;

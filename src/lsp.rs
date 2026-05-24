@@ -44,6 +44,15 @@ impl Backend {
         }
     }
 
+    /// Return the .praetor/ directory path if config has a path we can derive from.
+    fn praetor_dir(&self) -> Option<std::path::PathBuf> {
+        self.config.as_ref().and_then(|cfg| {
+            cfg.path.as_ref().and_then(|p| {
+                p.parent().map(|dir| dir.join(".praetor"))
+            })
+        })
+    }
+
     fn run_checks(&self, uri: &str, text: &str) -> Vec<Diagnostic> {
         let ext = extension_from_uri(uri);
         if ext.is_empty() || !self.engine.supports_extension(ext) {
@@ -57,7 +66,7 @@ impl Backend {
             None => return vec![],
         };
 
-        let results = CheckPipeline::run(&parsed, &self.engine, &cfg);
+        let results = CheckPipeline::run(&parsed, &self.engine, &cfg, self.praetor_dir().as_deref());
         results.into_iter().map(|cd| {
             let severity = match cd.severity {
                 DiagnosticSeverity::ERROR => Some(DiagnosticSeverity::ERROR),
@@ -88,7 +97,7 @@ impl Backend {
             None => return vec![],
         };
 
-        let results = CheckPipeline::run(&parsed, &self.engine, &cfg);
+        let results = CheckPipeline::run(&parsed, &self.engine, &cfg, self.praetor_dir().as_deref());
 
         // Collect all function nodes with their ranges
         let mut funcs: Vec<(Range, String)> = Vec::new();
@@ -293,7 +302,7 @@ impl Backend {
         // Run check pipeline to show other diagnostics for this function
         {
             let cfg = self.config.as_ref().cloned().unwrap_or_default();
-            let results = CheckPipeline::run(&parsed, &self.engine, &cfg);
+            let results = CheckPipeline::run(&parsed, &self.engine, &cfg, self.praetor_dir().as_deref());
             let mut fn_diags: Vec<String> = Vec::new();
             let mut fn_cursor4 = root.walk();
             for child in root.children(&mut fn_cursor4) {
@@ -356,7 +365,7 @@ impl Backend {
             None => return vec![],
         };
 
-        let results = CheckPipeline::run(&parsed, &self.engine, &cfg);
+        let results = CheckPipeline::run(&parsed, &self.engine, &cfg, self.praetor_dir().as_deref());
         results
             .into_iter()
             .filter_map(|d| {
