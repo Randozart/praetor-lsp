@@ -197,7 +197,7 @@ fn compute_cognitive(node: Node, depth: u32) -> u32 {
 /// Find the maximum nesting depth of control structures.
 fn max_nesting_depth(node: Node, depth: u32) -> u32 {
     let kind = node.kind();
-    let is_nesting = DECISION_KINDS.contains(&kind) || kind == "block" || kind == "body";
+    let is_nesting = DECISION_KINDS.contains(&kind);
 
     let current_depth = if is_nesting { depth + 1 } else { depth };
     let mut max_depth = current_depth;
