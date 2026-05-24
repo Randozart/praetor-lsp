@@ -1,6 +1,7 @@
 pub mod complexity;
 pub mod facts;
 pub mod intent;
+pub mod metrics;
 pub mod state_graph;
 
 use std::path::Path;
@@ -48,6 +49,14 @@ impl CheckPipeline {
 
         if config.complexity.big_o_threshold != "disabled" {
             results.extend(complexity::check_complexity(
+                parsed,
+                &config.complexity,
+            ));
+        }
+
+        // Metrics checks (cyclomatic, cognitive, line/param counts)
+        if config.complexity.cyclomatic_max > 0 || config.complexity.cognitive_max > 0 {
+            results.extend(metrics::check_metrics(
                 parsed,
                 &config.complexity,
             ));
