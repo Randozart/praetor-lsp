@@ -17,6 +17,7 @@ pub struct StateTransition {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct StateGraph {
+    #[allow(dead_code)]
     pub states: Vec<String>,
     #[allow(dead_code)]
     pub initial_state: Option<String>,
@@ -35,14 +36,12 @@ pub struct FunctionPattern {
 }
 
 impl StateGraph {
-    /// Load a state graph from a JSON file path.
     pub fn load(path: &Path) -> Option<Self> {
         let contents = fs::read_to_string(path).ok()?;
         let graph: Self = serde_json::from_str(&contents).ok()?;
         Some(graph)
     }
 
-    /// Build a lookup: action -> Vec<(from, to)>
     pub fn action_map(&self) -> HashMap<&str, Vec<(&str, &str)>> {
         let mut map: HashMap<&str, Vec<(&str, &str)>> = HashMap::new();
         for t in &self.transitions {
@@ -53,14 +52,8 @@ impl StateGraph {
         map
     }
 
-    /// Build a set of all known actions
     pub fn known_actions(&self) -> HashSet<&str> {
         self.transitions.iter().map(|t| t.action.as_ref()).collect()
-    }
-
-    /// Build a set of all valid state names
-    pub fn known_states(&self) -> HashSet<&str> {
-        self.states.iter().map(|s| s.as_ref()).collect()
     }
 }
 
@@ -69,62 +62,46 @@ pub fn check_state_graph(
     graph: &StateGraph,
 ) -> Vec<CheckDiagnostic> {
     let mut diags = Vec::new();
-    let lang = parsed.config;
-    let source = parsed.text;
-    let root = parsed.tree.root_node();
-    let known_actions = graph.known_actions();
-    let known_states = graph.known_states();
     let amap = graph.action_map();
+    let known_actions = graph.known_actions();
 
-    let mut cursor = root.walk();
-    for child in root.children(&mut cursor) {
-        if !lang.function_types.contains(&child.kind()) {
+    let mut cursor = parsed.tree.root_node().walk();
+    for child in parsed.tree.root_node().children(&mut cursor) {
+        if !parsed.config.function_types.contains(&child.kind()) {
             continue;
         }
-        let name_node = match find_child_by_path(child, lang.function_name_path) {
-            Some(n) => n,
-            None => continue,
+        let Some(name_node) = find_child_by_path(child, parsed.config.function_name_path) else {
+            continue;
         };
-        let fn_name_owned = node_text(name_node, source);
+        let fn_name_owned = node_text(name_node, parsed.text);
         if fn_name_owned.is_empty() {
             continue;
         }
         let fn_name: &str = &fn_name_owned;
 
-        if !is_related_to_graph(fn_name, &known_actions, &known_states) {
-            continue;
-        }
-
+        let body_text = node_text(child, parsed.text);
         let nrange = node_range(name_node);
-        let body_text = node_text(child, source);
 
         if known_actions.contains(fn_name) {
             check_exact_action(&mut diags, fn_name, &body_text, &nrange, &amap);
-        } else {
-            if let Some(matching_action) = known_actions.iter().find(|a| fn_name.contains(*a)) {
-                if let Some(valid_transitions) = amap.get(matching_action) {
-                    let valid_targets: Vec<&str> = valid_transitions
-                        .iter()
-                        .map(|(_, to)| *to)
-                        .collect();
-                    if !valid_targets.iter().any(|target| body_text.contains(*target)) {
-                        diags.push(transition_diag(
-                            &nrange,
-                            &format!("`{}` does not transition to any declared target state ({})", fn_name, valid_targets.join(", ")),
-                            DiagnosticSeverity::WARNING,
-                        ));
-                    }
-                }
-            }
+            continue;
+        }
+        let Some(matching_action) = known_actions.iter().find(|a| fn_name.contains(*a)) else {
+            continue;
+        };
+        let Some(valid_transitions) = amap.get(matching_action) else {
+            continue;
+        };
+        let valid_targets: Vec<&str> = valid_transitions.iter().map(|(_, to)| *to).collect();
+        if !valid_targets.iter().any(|target| body_text.contains(*target)) {
+            diags.push(transition_diag(
+                &nrange,
+                &format!("`{}` does not transition to any declared target state ({})", fn_name, valid_targets.join(", ")),
+                DiagnosticSeverity::WARNING,
+            ));
         }
     }
     diags
-}
-
-fn is_related_to_graph(fn_name: &str, known_actions: &HashSet<&str>, known_states: &HashSet<&str>) -> bool {
-    if known_actions.contains(fn_name) { return true; }
-    known_actions.iter().any(|a| fn_name.contains(a))
-        || known_states.iter().any(|s| fn_name.contains(s))
 }
 
 fn node_range(name_node: tree_sitter::Node) -> Range {
