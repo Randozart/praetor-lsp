@@ -7,6 +7,7 @@ use tracing_subscriber::EnvFilter;
 mod ast;
 mod checks;
 mod config;
+mod downloader;
 mod facts;
 mod lsp;
 mod report;
@@ -52,6 +53,10 @@ async fn main() {
         Some(Commands::Report { target, output, format }) => {
             let engine = Arc::new(ast::AstEngine::new());
             let cfg = config::PraetorConfig::discover();
+            // Ensure tools are cached (blocking — user invoked report explicitly)
+            let cache = downloader::cache_root();
+            let ready = downloader::ensure_all_tools(&cache);
+            tracing::info!("{}/{} external tools ready", ready.len(), 3);
             let rep = report::Report::new(engine, cfg);
             rep.generate(&target, &format, output.as_deref());
         }
@@ -69,6 +74,17 @@ async fn run_lsp() {
 
     let engine = Arc::new(ast::AstEngine::new());
     tracing::info!("loaded {} languages", engine.loaded_count());
+
+    // Start downloading external tools in the background
+    let cache_path = downloader::cache_root();
+    let _ = downloader::setup_cache(&cache_path);
+    if let Err(e) = downloader::setup_cache(&cache_path) {
+        tracing::warn!("failed to setup tool cache: {}", e);
+    }
+    let cache_clone = cache_path.clone();
+    tokio::spawn(async move {
+        downloader::ensure_all_tools(&cache_clone);
+    });
 
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
