@@ -18,7 +18,6 @@ pub fn check_intent(
         _ => DiagnosticSeverity::ERROR,
     };
 
-    let mut cursor = parsed.tree.root_node().walk();
     walk_intent_check(
         parsed.tree.root_node(),
         parsed.config,
@@ -26,7 +25,6 @@ pub fn check_intent(
         sev,
         config,
         &mut diags,
-        &mut cursor,
     );
     diags
 }
@@ -38,20 +36,15 @@ fn walk_intent_check<'a>(
     severity: DiagnosticSeverity,
     config: &IntentConfig,
     diags: &mut Vec<CheckDiagnostic>,
-    cursor: &mut tree_sitter::TreeCursor<'a>,
 ) {
     if lang.function_types.contains(&node.kind()) {
         check_function_intent(node, lang, source, severity, config, diags);
     }
-
     if node.child_count() > 0 {
-        cursor.reset(node);
-        while cursor.goto_first_child() {
-            walk_intent_check(
-                cursor.node(), lang, source, severity, config, diags, cursor,
-            );
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            walk_intent_check(child, lang, source, severity, config, diags);
         }
-        cursor.goto_parent();
     }
 }
 

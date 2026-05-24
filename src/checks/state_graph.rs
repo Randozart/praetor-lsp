@@ -3,7 +3,7 @@ use std::fs;
 use std::path::Path;
 
 use serde::Deserialize;
-use tower_lsp::lsp_types::{DiagnosticSeverity, Position, Range};
+use tower_lsp::lsp_types::{DiagnosticSeverity, Range};
 
 use crate::ast::{find_child_by_path, node_text, ParsedFile};
 use super::CheckDiagnostic;
@@ -101,21 +101,34 @@ pub fn check_state_graph(
         if known_actions.contains(fn_name) {
             check_exact_action(&mut diags, fn_name, &body_text, &nrange, &amap);
         } else {
-            check_substring_action(&mut diags, fn_name, &body_text, &nrange, &known_actions, &amap);
+            if let Some(matching_action) = known_actions.iter().find(|a| fn_name.contains(*a)) {
+                if let Some(valid_transitions) = amap.get(matching_action) {
+                    let valid_targets: Vec<&str> = valid_transitions
+                        .iter()
+                        .map(|(_, to)| *to)
+                        .collect();
+                    if !valid_targets.iter().any(|target| body_text.contains(*target)) {
+                        diags.push(transition_diag(
+                            &nrange,
+                            &format!("`{}` does not transition to any declared target state ({})", fn_name, valid_targets.join(", ")),
+                            DiagnosticSeverity::WARNING,
+                        ));
+                    }
+                }
+            }
         }
     }
     diags
 }
 
 fn is_related_to_graph(fn_name: &str, known_actions: &HashSet<&str>, known_states: &HashSet<&str>) -> bool {
-    if known_actions.contains(fn_name) {
-        return true;
-    }
+    if known_actions.contains(fn_name) { return true; }
     known_actions.iter().any(|a| fn_name.contains(a))
         || known_states.iter().any(|s| fn_name.contains(s))
 }
 
 fn node_range(name_node: tree_sitter::Node) -> Range {
+    use tower_lsp::lsp_types::Position;
     Range {
         start: Position {
             line: name_node.start_position().row as u32,
@@ -151,27 +164,6 @@ fn check_exact_action(
             nrange,
             &format!("`{}` should transition to `{}` but body does not reference that state", fn_name, to_states[0]),
             DiagnosticSeverity::HINT,
-        ));
-    }
-}
-
-fn check_substring_action(
-    diags: &mut Vec<CheckDiagnostic>,
-    fn_name: &str,
-    body_text: &str,
-    nrange: &Range,
-    known_actions: &HashSet<&str>,
-    amap: &HashMap<&str, Vec<(&str, &str)>>,
-) {
-    let Some(matching_action) = known_actions.iter().find(|a| fn_name.contains(*a)) else { return };
-    let Some(valid_transitions) = amap.get(matching_action) else { return };
-    let valid_targets: Vec<&str> = valid_transitions.iter().map(|(_, to)| *to).collect();
-
-    if !valid_targets.iter().any(|target| body_text.contains(*target)) {
-        diags.push(transition_diag(
-            nrange,
-            &format!("`{}` does not transition to any declared target state ({})", fn_name, valid_targets.join(", ")),
-            DiagnosticSeverity::WARNING,
         ));
     }
 }

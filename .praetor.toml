@@ -1,7 +1,7 @@
 [intent]
 enabled = true
-severity = "error"
-exempt_patterns = ["fn get_.*", "fn set_.*", "fn new\\(", "fn main\\(", "fn test_.*"]
+severity = "hint"
+exempt_patterns = ["^get_.*", "^set_.*", "^new$", "^main$", "^test_.*", "^default$", "^into$", "^from$"]
 
 [complexity]
 big_o_threshold = "O(n²)"

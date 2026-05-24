@@ -28,6 +28,17 @@ pub struct ShadowRegistry {
     pub entries: HashMap<String, ShadowResult>,
 }
 
+#[derive(Debug, Clone)]
+pub struct ShadowRegistration {
+    pub function_name: String,
+    pub original_source: String,
+    pub shadow_source: String,
+    pub winner: String,
+    pub ratio: f64,
+    pub improvement: HashMap<String, MetricDelta>,
+    pub suppressed_diagnostics: Vec<String>,
+}
+
 #[allow(dead_code)]
 impl ShadowRegistry {
     /// Load the registry from `.praetor/shadow-results.json`.
@@ -68,7 +79,6 @@ impl ShadowRegistry {
         entry.suppressed_diagnostics.iter().any(|s| diagnostic_source.contains(s))
     }
 
-    /// Get the list of suppressed diagnostics for a function.
     pub fn suppressed_sources(&self, function_name: &str) -> Vec<&str> {
         self.entries
             .get(function_name)
@@ -76,28 +86,18 @@ impl ShadowRegistry {
             .unwrap_or_default()
     }
 
-    /// Register a shadow verification result.
-    pub fn register(
-        &mut self,
-        function_name: &str,
-        original_source: &str,
-        shadow_source: &str,
-        winner: &str,
-        ratio: f64,
-        improvement: HashMap<String, MetricDelta>,
-        suppressed_diagnostics: Vec<String>,
-    ) {
-        let original_hash = hash_source(original_source);
-        let shadow_hash = hash_source(shadow_source);
+    pub fn register(&mut self, reg: ShadowRegistration) {
+        let original_hash = hash_source(&reg.original_source);
+        let shadow_hash = hash_source(&reg.shadow_source);
         self.entries.insert(
-            function_name.to_string(),
+            reg.function_name.clone(),
             ShadowResult {
                 original_hash,
                 shadow_hash,
-                winner: winner.to_string(),
-                ratio,
-                improvement,
-                suppressed_diagnostics,
+                winner: reg.winner.clone(),
+                ratio: reg.ratio,
+                improvement: reg.improvement.clone(),
+                suppressed_diagnostics: reg.suppressed_diagnostics.clone(),
                 verified_at: chrono_now(),
             },
         );

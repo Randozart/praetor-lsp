@@ -820,15 +820,15 @@ mod bench_apply_incremental_change {
         let mut improvement = HashMap::new();
         improvement.insert("nesting".into(), suppressor::MetricDelta { before: 13, after: 5 });
         improvement.insert("cognitive".into(), suppressor::MetricDelta { before: 44, after: 12 });
-        registry.register(
-            "apply_incremental_change",
-            include_str!("lsp.rs"), // approximate — real impl would hash function body
-            include_str!("lsp.rs"),
-            winner,
+        registry.register(suppressor::ShadowRegistration {
+            function_name: "apply_incremental_change".into(),
+            original_source: include_str!("lsp.rs").into(),
+            shadow_source: include_str!("lsp.rs").into(),
+            winner: winner.into(),
             ratio,
             improvement,
-            vec!["praetor/metrics".into()],
-        );
+            suppressed_diagnostics: vec!["praetor/metrics".into()],
+        });
         registry.save(praetor_dir);
         println!("  → Registry written to .praetor/shadow-results.json");
     }

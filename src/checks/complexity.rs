@@ -15,14 +15,12 @@ pub fn check_complexity(
     config: &ComplexityConfig,
 ) -> Vec<CheckDiagnostic> {
     let mut diags = Vec::new();
-    let mut cursor = parsed.tree.root_node().walk();
     walk_functions(
         parsed.tree.root_node(),
         parsed.config,
         parsed.text,
         config,
         &mut diags,
-        &mut cursor,
     );
     diags
 }
@@ -33,27 +31,17 @@ fn walk_functions<'a>(
     source: &'a [u8],
     config: &ComplexityConfig,
     diags: &mut Vec<CheckDiagnostic>,
-    cursor: &mut tree_sitter::TreeCursor<'a>,
 ) {
     if lang.function_types.contains(&node.kind()) {
         if let Some(result) = analyze_function(node, lang, source, config) {
             diags.push(result);
         }
     }
-
     if node.child_count() > 0 {
-        cursor.reset(node);
-        while cursor.goto_first_child() {
-            walk_functions(
-                cursor.node(),
-                lang,
-                source,
-                config,
-                diags,
-                cursor,
-            );
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            walk_functions(child, lang, source, config, diags);
         }
-        cursor.goto_parent();
     }
 }
 

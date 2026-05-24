@@ -413,15 +413,15 @@ mod bench_detect_os {
         let mut improvement = std::collections::HashMap::new();
         improvement.insert("cognitive".into(), crate::suppressor::MetricDelta { before: 21, after: 6 });
 
-        registry.register(
-            "detect_os",
-            include_str!("downloader.rs"),
-            include_str!("downloader.rs"),
-            "original",
+        registry.register(crate::suppressor::ShadowRegistration {
+            function_name: "detect_os".into(),
+            original_source: include_str!("downloader.rs").into(),
+            shadow_source: include_str!("downloader.rs").into(),
+            winner: "original".into(),
             ratio,
             improvement,
-            vec!["praetor/metrics".into()],
-        );
+            suppressed_diagnostics: vec!["praetor/metrics".into()],
+        });
         registry.save(praetor_dir);
         println!("  → Registry written to .praetor/shadow-results.json");
 
