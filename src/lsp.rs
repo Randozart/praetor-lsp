@@ -313,7 +313,7 @@ impl Backend {
                 }
             }
 
-            let ds = crate::facts::evaluate_facts(&mut ctx);
+            let ds = crate::facts::evaluate_facts(&mut ctx, None);
             for d in &ds {
                 if d.function == fn_name {
                     fact_lines.push(format!("- {} (line {})", d.message, d.line + 1));

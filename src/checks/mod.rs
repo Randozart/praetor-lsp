@@ -71,7 +71,7 @@ impl CheckPipeline {
         }
 
         // Datalog facts check (always runs — built-in rules)
-        results.extend(facts::check_facts(parsed));
+        results.extend(facts::check_facts(parsed, Some(&config.datalog)));
 
         // State graph validation (opt-in — default disabled)
         if config.state_graph.enabled {

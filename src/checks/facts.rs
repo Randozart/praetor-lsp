@@ -1,14 +1,16 @@
 use tower_lsp::lsp_types::{DiagnosticSeverity, Position, Range};
 
 use crate::ast::ParsedFile;
+use crate::config::DatalogConfig;
 use crate::facts::FactEngine;
 
 use super::CheckDiagnostic;
 
 pub fn check_facts(
     parsed: &ParsedFile,
+    datalog_config: Option<&DatalogConfig>,
 ) -> Vec<CheckDiagnostic> {
-    let results = FactEngine::analyze(parsed);
+    let results = FactEngine::analyze(parsed, datalog_config);
     results.into_iter().map(|fd| {
         let severity = match fd.rule_id {
             1 | 5 => DiagnosticSeverity::ERROR,

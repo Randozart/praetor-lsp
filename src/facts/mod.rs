@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crepe::crepe;
 
-// Reserved IDs for well-known symbols
+// Reserved IDs for well-known symbols (fallback when no config provided)
 pub const AUTH_ID: u32 = 0;
 pub const PRIV_ID: u32 = 1;
 pub const LOG_ID: u32 = 2;
@@ -22,22 +22,29 @@ crepe! {
     struct Annotated(u32);
     @input
     struct ParamCount(u32, u32);
+    @input
+    struct AuthFn(u32);
+    @input
+    struct PrivateLabel(u32);
+    @input
+    struct LogFn(u32);
+    @input
+    struct EntryPt(u32);
 
     @output
     struct Violation(u32, u32, u32);
 
     // Rule 1: Private data access without prior authenticate or log_access
     Violation(1, f, r) <-
-        Access(f, r), (r == PRIV_ID),
-        !Call(f, AUTH_ID),
-        !Call(f, LOG_ID);
+        Access(f, r), PrivateLabel(r),
+        AuthFn(x), !Call(f, x),
+        LogFn(y), !Call(f, y);
 
     // Rule 2: Unreachable handler — has docs but no caller
     Violation(2, f, 0) <-
         Annotated(f),
         !Call(_, f),
-        (f != MAIN_ID),
-        (f != RUN_ID);
+        !EntryPt(f);
 
     // Rule 3: Declared variable never read
     Violation(3, f, v) <-
@@ -70,6 +77,16 @@ impl SymbolTable {
         st.intern("log_access");
         st.intern("main");
         st.intern("run");
+        st
+    }
+
+    /// Build a SymbolTable from DatalogConfig, interning configured names.
+    pub fn with_config(cfg: &crate::config::DatalogConfig) -> Self {
+        let mut st = Self::default();
+        for name in &cfg.auth_functions { st.intern(name); }
+        for name in &cfg.private_data_labels { st.intern(name); }
+        for name in &cfg.log_functions { st.intern(name); }
+        for name in &cfg.entry_points { st.intern(name); }
         st
     }
 
@@ -119,30 +136,68 @@ pub struct FactEngine;
 impl FactEngine {
     pub fn analyze(
         parsed: &crate::ast::ParsedFile,
+        datalog_config: Option<&crate::config::DatalogConfig>,
     ) -> Vec<FactDiagnostic> {
         let lang = parsed.config;
         let source = parsed.text;
         let root = parsed.tree.root_node();
         let mut ctx = FactContext::default();
-        ctx.sym = SymbolTable::new();
+        ctx.sym = match datalog_config {
+            Some(cfg) => SymbolTable::with_config(cfg),
+            None => SymbolTable::new(),
+        };
 
         collect_facts(root, lang, source, &mut ctx);
 
-        evaluate_facts(&mut ctx)
+        evaluate_facts(&mut ctx, datalog_config)
     }
 }
 
 /// Run the Crepe Datalog engine with collected facts and return diagnostics.
 pub fn evaluate_facts(
     ctx: &mut FactContext,
+    datalog_config: Option<&crate::config::DatalogConfig>,
 ) -> Vec<FactDiagnostic> {
-    let sym = &ctx.sym;
+    let sym = &mut ctx.sym;
     let mut runtime = Crepe::new();
     runtime.extend(ctx.calls.iter().map(|&(a, b)| Call(a, b)));
     runtime.extend(ctx.accesses.iter().map(|&(a, b)| Access(a, b)));
     runtime.extend(ctx.declares.iter().map(|&(a, b)| Declares(a, b)));
     runtime.extend(ctx.annotated.iter().map(|&f| Annotated(f)));
     runtime.extend(ctx.param_counts.iter().map(|&(f, c)| ParamCount(f, c)));
+
+    // Populate configurable Datalog relations
+    let cfg = datalog_config.cloned().unwrap_or_default();
+    for name in &cfg.auth_functions {
+        let id = sym.intern(name);
+        runtime.extend(std::iter::once(AuthFn(id)));
+    }
+    for name in &cfg.private_data_labels {
+        let id = sym.intern(name);
+        runtime.extend(std::iter::once(PrivateLabel(id)));
+    }
+    for name in &cfg.log_functions {
+        let id = sym.intern(name);
+        runtime.extend(std::iter::once(LogFn(id)));
+    }
+    for name in &cfg.entry_points {
+        let id = sym.intern(name);
+        runtime.extend(std::iter::once(EntryPt(id)));
+    }
+    // Fallback: if no config, use hardcoded reserved IDs
+    if cfg.auth_functions.is_empty() {
+        runtime.extend(std::iter::once(AuthFn(AUTH_ID)));
+    }
+    if cfg.private_data_labels.is_empty() {
+        runtime.extend(std::iter::once(PrivateLabel(PRIV_ID)));
+    }
+    if cfg.log_functions.is_empty() {
+        runtime.extend(std::iter::once(LogFn(LOG_ID)));
+    }
+    if cfg.entry_points.is_empty() {
+        runtime.extend(std::iter::once(EntryPt(MAIN_ID)));
+        runtime.extend(std::iter::once(EntryPt(RUN_ID)));
+    }
 
     let (violations,) = runtime.run();
 
