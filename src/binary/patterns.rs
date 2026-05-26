@@ -32,31 +32,21 @@ pub enum PatternSeverity {
 /// Detect anti-patterns in a binary program.
 pub fn detect_patterns(program: &BinaryProgram) -> Vec<AntiPattern> {
     let mut patterns = Vec::new();
-
     for func in &program.functions {
         let fn_name = func.name.clone().unwrap_or_else(|| format!("func_{:#x}", func.address));
-
-        // Check for spin-locks and polling loops
-        if let Some(pattern) = check_spin_lock(func, &fn_name) {
-            patterns.push(pattern);
-        }
-        if let Some(pattern) = check_polling_loop(func, &fn_name) {
-            patterns.push(pattern);
-        }
-
-        // Check for busy-wait loops
-        if let Some(pattern) = check_busy_wait(func, &fn_name) {
-            patterns.push(pattern);
-        }
-
-        // Check for memory bloat
-        for insn in &func.instructions {
-            check_memory_bloat(insn, &fn_name, &mut patterns);
-            check_legacy_callback(insn, &fn_name, &mut patterns);
-        }
+        detect_fn_patterns(func, &fn_name, &mut patterns);
     }
-
     patterns
+}
+
+fn detect_fn_patterns(func: &Function, fn_name: &str, patterns: &mut Vec<AntiPattern>) {
+    if let Some(p) = check_spin_lock(func, fn_name) { patterns.push(p); }
+    if let Some(p) = check_polling_loop(func, fn_name) { patterns.push(p); }
+    if let Some(p) = check_busy_wait(func, fn_name) { patterns.push(p); }
+    for insn in &func.instructions {
+        check_memory_bloat(insn, fn_name, patterns);
+        check_legacy_callback(insn, fn_name, patterns);
+    }
 }
 
 /// Detect spin-locks: tight loops with `test`/`cmp` + `jne` with no calls.

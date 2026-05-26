@@ -149,22 +149,27 @@ pub fn is_tool_ready(tool: &ToolAsset, cache: &Path) -> bool {
         return true;
     }
     if tool.name.ends_with(".jar") || tool.name.contains("sonarlint") {
-        let exact = cache.join("lib").join(format!("{}.jar", tool.name));
-        if exact.exists() {
-            return true;
-        }
-        let lib_dir = cache.join("lib");
-        if lib_dir.is_dir() {
-            if let Ok(entries) = std::fs::read_dir(&lib_dir) {
-                return entries.filter_map(|e| e.ok()).any(|e| {
-                    e.file_name().to_string_lossy().starts_with(&tool.name)
-                        && e.file_name().to_string_lossy().ends_with(".jar")
-                });
-            }
-        }
-        return false;
+        return is_jar_ready(tool, cache);
     }
     tool.bin_path(cache).exists()
+}
+
+fn is_jar_ready(tool: &ToolAsset, cache: &Path) -> bool {
+    let exact = cache.join("lib").join(format!("{}.jar", tool.name));
+    if exact.exists() {
+        return true;
+    }
+    let lib_dir = cache.join("lib");
+    if !lib_dir.is_dir() {
+        return false;
+    }
+    let Ok(entries) = std::fs::read_dir(&lib_dir) else {
+        return false;
+    };
+    entries.filter_map(|e| e.ok()).any(|e| {
+        e.file_name().to_string_lossy().starts_with(&tool.name)
+            && e.file_name().to_string_lossy().ends_with(".jar")
+    })
 }
 
 /// Download a tool asset. Uses `curl` for HTTP download.
@@ -372,18 +377,22 @@ pub fn ensure_all_tools(cache: &Path) -> Vec<ToolAsset> {
     }
 
     for tool in &tools {
-        if ensure_tool(tool, cache) {
-            ready.push(tool.clone());
-            info!("{} is ready", tool.name);
-        } else if tool.name == "semgrep" && ensure_semgrep_pip(cache) {
-            ready.push(tool.clone());
-            info!("{} is ready (pip)", tool.name);
-        } else {
-            warn!("{} is NOT ready — continuing without it", tool.name);
-        }
+        ensure_single_tool(tool, cache, &mut ready);
     }
 
     ready
+}
+
+fn ensure_single_tool(tool: &ToolAsset, cache: &Path, ready: &mut Vec<ToolAsset>) {
+    if ensure_tool(tool, cache) {
+        ready.push(tool.clone());
+        info!("{} is ready", tool.name);
+    } else if tool.name == "semgrep" && ensure_semgrep_pip(cache) {
+        ready.push(tool.clone());
+        info!("{} is ready (pip)", tool.name);
+    } else {
+        warn!("{} is NOT ready — continuing without it", tool.name);
+    }
 }
 
 #[cfg(test)]

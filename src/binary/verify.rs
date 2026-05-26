@@ -74,30 +74,29 @@ pub fn compare_binaries(original_path: &Path, patched_path: &Path) -> Result<Top
         patched,
     };
 
-    // Match functions by address
-    let orig_fn_map: HashMap<u64, &Function> = report.original.fn_map.iter().map(|(&addr, &idx)| (addr, &report.original.functions[idx])).collect();
-    let patched_fn_map: HashMap<u64, &Function> = report.patched.fn_map.iter().map(|(&addr, &idx)| (addr, &report.patched.functions[idx])).collect();
+    match_functions(&mut report);
+    compare_edges(&mut report);
 
-    let mut matched_orig = HashSet::new();
+    Ok(report)
+}
+
+fn match_functions(report: &mut TopologyReport) {
+    let orig_fn_map: HashMap<u64, &Function> = report.original.fn_map.iter()
+        .map(|(&addr, &idx)| (addr, &report.original.functions[idx])).collect();
+    let patched_fn_map: HashMap<u64, &Function> = report.patched.fn_map.iter()
+        .map(|(&addr, &idx)| (addr, &report.patched.functions[idx])).collect();
+
     let mut matched_patch = HashSet::new();
 
     for (&addr, orig_fn) in &orig_fn_map {
         if let Some(patch_fn) = patched_fn_map.get(&addr) {
-            // Function exists in both — compare
-            matched_orig.insert(addr);
             matched_patch.insert(addr);
-
             let diff = compare_functions(orig_fn, Some(patch_fn));
-            match diff.status {
-                FnStatus::Unchanged => report.matched_functions += 1,
-                FnStatus::Modified => {
-                    report.changed_functions.push(diff);
-                    report.matched_functions += 1;
-                }
-                _ => {}
+            report.matched_functions += 1;
+            if diff.status == FnStatus::Modified {
+                report.changed_functions.push(diff);
             }
         } else {
-            // Function only in original
             report.removed_functions += 1;
             report.changed_functions.push(compare_functions(orig_fn, None));
         }
@@ -109,8 +108,9 @@ pub fn compare_binaries(original_path: &Path, patched_path: &Path) -> Result<Top
             report.changed_functions.push(compare_functions(patch_fn, None));
         }
     }
+}
 
-    // Compare call edges
+fn compare_edges(report: &mut TopologyReport) {
     let orig_edges = extract_call_edges(&report.original);
     let patched_edges = extract_call_edges(&report.patched);
 
@@ -126,8 +126,6 @@ pub fn compare_binaries(original_path: &Path, patched_path: &Path) -> Result<Top
             report.new_edges += 1;
         }
     }
-
-    Ok(report)
 }
 
 /// Compare a function in original vs patched.
@@ -200,17 +198,11 @@ type CallEdge = (u64, u64);
 
 /// Extract all call edges from a binary program.
 fn extract_call_edges(program: &BinaryProgram) -> HashSet<CallEdge> {
-    let mut edges = HashSet::new();
-    for func in &program.functions {
-        for insn in &func.instructions {
-            if insn.is_call {
-                if let Some(target) = insn.call_target {
-                    edges.insert((insn.address, target));
-                }
-            }
-        }
-    }
-    edges
+    program.functions.iter()
+        .flat_map(|f| f.instructions.iter())
+        .filter(|i| i.is_call)
+        .filter_map(|i| i.call_target.map(|t| (i.address, t)))
+        .collect()
 }
 
 /// Verify that applying a set of patches preserves the overall CFG topology.
@@ -221,14 +213,20 @@ pub fn verify_patches(original_path: &Path, _patches: &[Patch], patched_path: &P
 /// Generate a human-readable report from a topology comparison.
 pub fn format_topology_report(report: &TopologyReport) -> String {
     let mut out = String::new();
+    let orig_count: usize = report.original.functions.iter()
+        .flat_map(|f| f.instructions.iter())
+        .filter(|i| i.is_call && i.call_target.is_some())
+        .count();
+    let patched_count: usize = report.patched.functions.iter()
+        .flat_map(|f| f.instructions.iter())
+        .filter(|i| i.is_call && i.call_target.is_some())
+        .count();
 
     out.push_str("# CFG Topology Verification\n\n");
     out.push_str(&format!("Original: {} functions, {} call edges\n",
-        report.total_original_fns,
-        extract_call_edges(&report.original).len()));
+        report.total_original_fns, orig_count));
     out.push_str(&format!("Patched:  {} functions, {} call edges\n",
-        report.total_patched_fns,
-        extract_call_edges(&report.patched).len()));
+        report.total_patched_fns, patched_count));
     out.push_str("\n## Summary\n\n");
     out.push_str(&format!("- Matched (unchanged): {}\n", report.matched_functions));
     out.push_str(&format!("- Modified: {}\n", report.changed_functions.iter().filter(|d| d.status == FnStatus::Modified).count()));

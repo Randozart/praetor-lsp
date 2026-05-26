@@ -30,7 +30,7 @@ fn collect_failures<'a>(
     for fr in &analysis.file_results {
         for d in &fr.diagnostics {
             let sev = d.severity;
-            if sev == DiagnosticSeverity::ERROR || (!warn_only && sev == DiagnosticSeverity::WARNING) {
+            if sev == DiagnosticSeverity::ERROR || (warn_only && sev == DiagnosticSeverity::WARNING) {
                 failures.push((fr.path.as_str(), fr, d));
             }
         }

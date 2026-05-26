@@ -197,37 +197,8 @@ fn run_binary_apply(input: &str, output: &str, nop: Option<&str>, jump: Option<&
             return;
         }
     };
-
-    let mut patches = Vec::new();
-
-    // Parse NOP addresses
-    if let Some(nop_str) = nop {
-        for addr_str in nop_str.split(',') {
-            let addr_str = addr_str.trim().trim_start_matches("0x");
-            if let Ok(addr) = u64::from_str_radix(addr_str, 16) {
-                patches.push(binary::patch::Patch::nop(addr, 5));
-            } else {
-                eprintln!("[WARN] invalid NOP address: {}", addr_str);
-            }
-        }
-    }
-
-    // Parse jump redirects (from,to)
-    if let Some(jump_str) = jump {
-        for pair in jump_str.split(',') {
-            let parts: Vec<&str> = pair.trim().split(|c| c == ':' || c == '-' || c == ' ').collect();
-            if parts.len() >= 2 {
-                let from_str = parts[0].trim().trim_start_matches("0x");
-                let to_str = parts[1].trim().trim_start_matches("0x");
-                if let (Ok(from), Ok(to)) = (u64::from_str_radix(from_str, 16), u64::from_str_radix(to_str, 16)) {
-                    match binary::patch::Patch::near_jump(from, to, true) {
-                        Ok(p) => patches.push(p),
-                        Err(e) => eprintln!("[WARN] jump patch error: {}", e),
-                    }
-                }
-            }
-        }
-    }
+    let mut patches = parse_nop_patches(nop);
+    patches.extend(parse_jump_patches(jump));
 
     match binary::patch::apply_patches(&data, &patches, 0) {
         Ok(result) => {
@@ -237,10 +208,53 @@ fn run_binary_apply(input: &str, output: &str, nop: Option<&str>, jump: Option<&
                 println!("[OK] applied {} patches, wrote {} bytes to {}", patches.len(), result.len(), output);
             }
         }
-        Err(e) => {
-            eprintln!("[ERR] patch application failed: {}", e);
+        Err(e) => eprintln!("[ERR] patch application failed: {}", e),
+    }
+}
+
+fn parse_nop_patches(nop: Option<&str>) -> Vec<binary::patch::Patch> {
+    let mut patches = Vec::new();
+    let nop_str = match nop {
+        Some(s) => s,
+        None => return patches,
+    };
+    for addr_str in nop_str.split(',') {
+        let cleaned = addr_str.trim().trim_start_matches("0x");
+        match u64::from_str_radix(cleaned, 16) {
+            Ok(addr) => patches.push(binary::patch::Patch::nop(addr, 5)),
+            Err(_) => eprintln!("[WARN] invalid NOP address: {}", cleaned),
         }
     }
+    patches
+}
+
+fn parse_jump_patches(jump: Option<&str>) -> Vec<binary::patch::Patch> {
+    let mut patches = Vec::new();
+    let jump_str = match jump {
+        Some(s) => s,
+        None => return patches,
+    };
+    for pair in jump_str.split(',') {
+        let parts: Vec<&str> = pair.trim().split(|c| c == ':' || c == '-' || c == ' ').collect();
+        if parts.len() < 2 {
+            continue;
+        }
+        let from_str = parts[0].trim().trim_start_matches("0x");
+        let to_str = parts[1].trim().trim_start_matches("0x");
+        let from = match u64::from_str_radix(from_str, 16) {
+            Ok(a) => a,
+            Err(_) => { eprintln!("[WARN] invalid jump 'from' address: {}", from_str); continue; }
+        };
+        let to = match u64::from_str_radix(to_str, 16) {
+            Ok(a) => a,
+            Err(_) => { eprintln!("[WARN] invalid jump 'to' address: {}", to_str); continue; }
+        };
+        match binary::patch::Patch::near_jump(from, to, true) {
+            Ok(p) => patches.push(p),
+            Err(e) => eprintln!("[WARN] jump patch error: {}", e),
+        }
+    }
+    patches
 }
 
 /// Start the LSP server on stdio with the Praetor backend.
