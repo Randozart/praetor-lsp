@@ -5,6 +5,7 @@ use tower_lsp::LspService;
 use tracing_subscriber::EnvFilter;
 
 mod ast;
+mod binary;
 mod bridge;
 mod checks;
 mod config;
@@ -13,6 +14,7 @@ mod facts;
 mod init;
 mod lsp;
 mod report;
+mod setup;
 mod suppressor;
 mod validate;
 mod verify;
@@ -39,6 +41,9 @@ enum Commands {
         /// Output format: html or markdown
         #[arg(long, default_value = "markdown")]
         format: String,
+        /// Analyze binary files (dll, exe, so, elf, o, bin, sys)
+        #[arg(long)]
+        binary: bool,
     },
     /// Run shadow verification benchmarks
     Verify {
@@ -61,6 +66,8 @@ enum Commands {
         #[arg(long, default_value = "10000")]
         iterations: u64,
     },
+    /// Install external dependencies (Java 17, Python packages, Semgrep, Infer, SonarLint)
+    Setup,
     /// Initialize Praetor in the current project
     Init {
         /// Overwrite existing files without prompting
@@ -79,9 +86,41 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
+    /// Binary surgery and verification
+    #[command(subcommand)]
+    Binary(BinaryCommands),
+}
+
+#[derive(Subcommand)]
+enum BinaryCommands {
+    /// Compare original and patched binary CFGs
+    Verify {
+        /// Original binary file
+        #[arg(long)]
+        original: String,
+        /// Patched binary file
+        #[arg(long)]
+        patched: String,
+    },
+    /// Apply patches to a binary
+    Apply {
+        /// Original binary file
+        #[arg(long)]
+        input: String,
+        /// Output binary file
+        #[arg(long)]
+        output: String,
+        /// Addresses to NOP (comma-separated hex)
+        #[arg(long)]
+        nop: Option<String>,
+        /// Jump redirects (format: from,to; comma-separated pairs)
+        #[arg(long)]
+        jump: Option<String>,
+    },
 }
 
 #[tokio::main]
+/// Entry point: dispatch to subcommand or run the LSP server.
 async fn main() {
     tracing_subscriber::fmt()
         .with_writer(std::io::stderr)
@@ -94,14 +133,14 @@ async fn main() {
     let cli = Cli::parse();
 
     match cli.command {
-        Some(Commands::Report { target, output, format }) => {
+        Some(Commands::Report { target, output, format, binary }) => {
             let engine = Arc::new(ast::AstEngine::new());
             let cfg = config::PraetorConfig::discover();
             let cache = downloader::cache_root();
             let ready = downloader::ensure_all_tools(&cache);
-            tracing::info!("{}/{} external tools ready", ready.len(), 3);
+            tracing::info!("{}/{} external tools ready", ready.len(), 4);
             let rep = report::Report::new(engine, cfg);
-            rep.generate(&target, &format, output.as_deref());
+            rep.generate(&target, &format, output.as_deref(), binary);
         }
         Some(Commands::Verify { file, shadow, original, threshold, iterations }) => {
             verify::run_shadow_verify(&file, shadow.as_deref(), original.as_deref(), threshold, iterations);
@@ -109,13 +148,102 @@ async fn main() {
         Some(Commands::Init { force }) => {
             init::run_init(force);
         }
+        Some(Commands::Setup) => {
+            setup::run_setup();
+        }
         Some(Commands::Validate { target, warn, json }) => {
             validate::run_validate(&target, warn, json);
+        }
+        Some(Commands::Binary(BinaryCommands::Verify { original, patched })) => {
+            run_binary_verify(&original, &patched);
+        }
+        Some(Commands::Binary(BinaryCommands::Apply { input, output, nop, jump })) => {
+            run_binary_apply(&input, &output, nop.as_deref(), jump.as_deref());
         }
         _ => run_lsp().await,
     }
 }
 
+/// Verify that a patched binary preserves the original CFG topology.
+fn run_binary_verify(original: &str, patched: &str) {
+    let orig_path = std::path::Path::new(original);
+    let patched_path = std::path::Path::new(patched);
+
+    if !orig_path.exists() {
+        eprintln!("[ERR] original binary not found: {}", original);
+        return;
+    }
+    if !patched_path.exists() {
+        eprintln!("[ERR] patched binary not found: {}", patched);
+        return;
+    }
+
+    match binary::verify::compare_binaries(orig_path, patched_path) {
+        Ok(report) => {
+            println!("{}", binary::verify::format_topology_report(&report));
+        }
+        Err(e) => {
+            eprintln!("[ERR] verification failed: {}", e);
+        }
+    }
+}
+
+/// Apply patches to a binary and write the result.
+fn run_binary_apply(input: &str, output: &str, nop: Option<&str>, jump: Option<&str>) {
+    let data = match std::fs::read(input) {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("[ERR] failed to read {}: {}", input, e);
+            return;
+        }
+    };
+
+    let mut patches = Vec::new();
+
+    // Parse NOP addresses
+    if let Some(nop_str) = nop {
+        for addr_str in nop_str.split(',') {
+            let addr_str = addr_str.trim().trim_start_matches("0x");
+            if let Ok(addr) = u64::from_str_radix(addr_str, 16) {
+                patches.push(binary::patch::Patch::nop(addr, 5));
+            } else {
+                eprintln!("[WARN] invalid NOP address: {}", addr_str);
+            }
+        }
+    }
+
+    // Parse jump redirects (from,to)
+    if let Some(jump_str) = jump {
+        for pair in jump_str.split(',') {
+            let parts: Vec<&str> = pair.trim().split(|c| c == ':' || c == '-' || c == ' ').collect();
+            if parts.len() >= 2 {
+                let from_str = parts[0].trim().trim_start_matches("0x");
+                let to_str = parts[1].trim().trim_start_matches("0x");
+                if let (Ok(from), Ok(to)) = (u64::from_str_radix(from_str, 16), u64::from_str_radix(to_str, 16)) {
+                    match binary::patch::Patch::near_jump(from, to, true) {
+                        Ok(p) => patches.push(p),
+                        Err(e) => eprintln!("[WARN] jump patch error: {}", e),
+                    }
+                }
+            }
+        }
+    }
+
+    match binary::patch::apply_patches(&data, &patches, 0) {
+        Ok(result) => {
+            if let Err(e) = std::fs::write(output, &result) {
+                eprintln!("[ERR] failed to write {}: {}", output, e);
+            } else {
+                println!("[OK] applied {} patches, wrote {} bytes to {}", patches.len(), result.len(), output);
+            }
+        }
+        Err(e) => {
+            eprintln!("[ERR] patch application failed: {}", e);
+        }
+    }
+}
+
+/// Start the LSP server on stdio with the Praetor backend.
 async fn run_lsp() {
     let cfg = config::PraetorConfig::discover();
     if let Some(ref c) = cfg {

@@ -2,13 +2,18 @@
 
 <img src="assets/praetor-logo.svg" alt="Praetor Logo" width="200"/>
 
-**Draconic anti-AI slop formal verification LSP.**
+**Draconic anti-AI slop formal verification LSP + binary analysis toolkit.**
 
 Praetor is a language server that enforces four mutually-reinforcing pillars of
 verification: **Code**, **Docs**, **State Graph**, and **Datalog Facts**. It
 combines tree-sitter AST analysis, a built-in Datalog engine, and integration
 with industry-standard security tools to provide real-time verification in any
 LSP-capable editor to force any AI agent working on a project to be thorough and write human legible and maintainable code.
+
+Praetor also doubles as a **binary analysis and surgical patching toolkit** —
+lift PE/ELF/Mach-O to CFGs, detect anti-patterns, apply byte-level patches, and
+verify CFG topology preservation. Designed for the "Legacy Resurrection"
+workflow: excavate, diagnose, surgically repair, and mathematically confirm.
 
 **It is HIGHLY recommended not to use Praetor as your own human LSP. You WILL hate using it, unless you pride yourself a programming masochist**
 
@@ -21,22 +26,33 @@ LSP-capable editor to force any AI agent working on a project to be thorough and
 
 ## Features
 
-- **9 languages** — Python, JavaScript, TypeScript, TSX, Go, C, C++, Rust, Java
-- **14 tree-sitter parsers** — 9 languages across 14 file extensions
-  (.py, .js, .jsx, .ts, .tsx, .go, .c, .h, .cpp, .cc, .cxx, .hpp, .rs, .java)
+### Source code analysis
+- **20 languages** — Python, JavaScript, TypeScript, TSX, Go, C, C++, Rust, Java,
+  Assembly, SystemVerilog, VHDL, Ruby, Lua, PHP, Swift, Zig, Dart, Perl, Haskell
+- **33 file extensions** — .py, .js, .jsx, .ts, .tsx, .go, .c, .h, .cpp, .cc,
+  .cxx, .hpp, .rs, .java, .asm, .s, .S, .assembly, .sv, .svh, .vhd, .vhdl,
+  .rb, .lua, .php, .swift, .zig, .dart, .pl, .pm, .hs, .lhs
 - **Big-O complexity analysis** — loop nesting depth, recursion detection, linear ops inside loops
 - **Strict Intent Mode** — doc comment enforcement before every function
 - **Datalog invariant engine** — 5 built-in rules (privacy, reachability, parameter limits, data leaks) powered by [crepe](https://crates.io/crates/crepe)
 - **Cyclomatic & cognitive complexity** — configurable thresholds
 - **Architecture heuristics** — god object, data class, deep inheritance detection
 - **State graph validation** — declare allowed state transitions in `.praetor/state-graph.json`
-- **Semgrep integration** — 2,000+ security rules for all 9 languages
+- **Semgrep integration** — 2,000+ security rules for all 20 languages
 - **Infer integration** — Facebook/Meta's static analyzer for C/C++/Java
 - **SonarLint integration** — (stub, requires JAR subprocess)
 - **Project report** — Markdown or HTML, per-file diagnostic breakdown
 - **Shadow verification** — benchmark-gated refactoring: prove a refactor doesn't regress performance, or keep the original
 - **Pre-commit hook** — automatic via `praetor init`, blocks commits with unproven diagnostics
 - **CI gate** — `praetor validate --warn --json` for GitHub Actions
+
+### Binary analysis (Legacy Resurrection)
+- **Binary lifting** — PE/ELF/Mach-O parser with x86/x64 disassembly (goblin + iced-x86, zero system deps)
+- **Anti-pattern detection** — spin-locks, polling loops, busy-wait, stack bloat, legacy API calls
+- **Surgical patching** — NOP sleds, jump/call redirects, shim stubs with overlap detection
+- **CFG topology verification** — re-lift patched binary, diff call edges and basic blocks
+- **rizin LSP bridge** — Python r2pipe server: hover disassembly, goto-def, x-refs for binary files
+- **Auto-setup** — `praetor setup` installs rizin, r2pipe, and all dependencies
 
 ## Quick start
 
@@ -158,9 +174,13 @@ no inline exceptions, no human or AI override.
 |---------|-------------|
 | `praetor` | Start the LSP server |
 | `praetor report --target <dir>` | Generate verification report |
+| `praetor report --target <dir> --binary` | Include binary analysis in report |
 | `praetor validate --warn` | CI gate (exit 1 on unproven diagnostics) |
 | `praetor init` | Set up `.praetor/` and pre-commit hook |
+| `praetor setup` | Install Java 17, Semgrep, Infer, SonarLint, rizin, pip deps |
 | `praetor verify --shadow <file>` | Generate benchmark scaffold |
+| `praetor binary verify --original <bin> --patched <bin>` | Compare CFG topology |
+| `praetor binary apply --input <bin> --output <bin> --nop <addrs>` | Apply surgical patches |
 
 ## Architecture
 
@@ -172,6 +192,10 @@ Praetor enforces **four pillars** of verification:
    transitions outside the declared graph (opt-in, default disabled).
 4. **Datalog Facts** – Invariants extracted from the AST and checked against
    rules shipped with Praetor. Mathematical, not probabilistic.
+
+Plus **binary analysis** — PE/ELF/Mach-O lifting, anti-pattern detection, surgical
+patching, and CFG topology verification via `goblin` + `iced-x86` (zero system
+dependencies).
 
 For full details, see [docs/QUADRUPLE-BOOKKEEPING.md](./docs/QUADRUPLE-BOOKKEEPING.md)
 and [docs/SHADOW-VERIFICATION.md](./docs/SHADOW-VERIFICATION.md).
@@ -205,6 +229,17 @@ We use the following official grammars:
 | [tree-sitter-cpp](https://crates.io/crates/tree-sitter-cpp) | C++ | Max Brunsfeld | MIT |
 | [tree-sitter-rust](https://crates.io/crates/tree-sitter-rust) | Rust | Max Brunsfeld | MIT |
 | [tree-sitter-java](https://crates.io/crates/tree-sitter-java) | Java | Max Brunsfeld | MIT |
+| [tree-sitter-asm](https://crates.io/crates/tree-sitter-asm) | Assembly | Max Brunsfeld | MIT |
+| [tree-sitter-systemverilog](https://crates.io/crates/tree-sitter-systemverilog) | SystemVerilog | Max Brunsfeld | MIT |
+| [tree-sitter-vhdl](https://crates.io/crates/tree-sitter-vhdl) | VHDL | Max Brunsfeld | MIT |
+| [tree-sitter-ruby](https://crates.io/crates/tree-sitter-ruby) | Ruby | Max Brunsfeld | MIT |
+| [tree-sitter-lua](https://crates.io/crates/tree-sitter-lua) | Lua | Max Brunsfeld | MIT |
+| [tree-sitter-php](https://crates.io/crates/tree-sitter-php) | PHP | Max Brunsfeld | MIT |
+| [tree-sitter-swift](https://crates.io/crates/tree-sitter-swift) | Swift | Max Brunsfeld | MIT |
+| [tree-sitter-zig](https://crates.io/crates/tree-sitter-zig) | Zig | Max Brunsfeld | MIT |
+| [tree-sitter-dart](https://crates.io/crates/tree-sitter-dart) | Dart | Max Brunsfeld | MIT |
+| [tree-sitter-perl](https://crates.io/crates/tree-sitter-perl) | Perl | Max Brunsfeld | MIT |
+| [tree-sitter-haskell](https://crates.io/crates/tree-sitter-haskell) | Haskell | Max Brunsfeld | MIT |
 
 ### Key dependencies
 
@@ -213,6 +248,8 @@ We use the following official grammars:
 | [tower-lsp](https://crates.io/crates/tower-lsp) | Eduard-Mihai Burtescu, Tessel | LSP framework | MIT / Apache-2.0 |
 | [crepe](https://crates.io/crates/crepe) | Łukasz Niemier | Datalog engine | MIT / Apache-2.0 |
 | [tree-sitter](https://crates.io/crates/tree-sitter) | Max Brunsfeld | AST parsing | MIT |
+| [goblin](https://crates.io/crates/goblin) | m4b | PE/ELF/Mach-O binary parsing | MIT |
+| [iced-x86](https://crates.io/crates/iced-x86) | iced | x86/x64 disassembly/encoding | MIT |
 | [clap](https://crates.io/crates/clap) | Kevin K., Ed Page, et al. | CLI argument parsing | MIT / Apache-2.0 |
 | [serde](https://crates.io/crates/serde) | Erick Tryzelaar, David Tolnay | Serialization | MIT / Apache-2.0 |
 | [serde_json](https://crates.io/crates/serde_json) | Erick Tryzelaar, David Tolnay | JSON parsing | MIT / Apache-2.0 |
@@ -229,6 +266,7 @@ We use the following official grammars:
 | [Semgrep](https://semgrep.dev) | r2c / Semgrep Inc. | Security linting | LGPL-2.1 |
 | [Infer](https://fbinfer.com) | Facebook / Meta | Static analysis | MIT |
 | [SonarLint](https://sonarsource.com/products/sonarlint) | SonarSource | Code quality | LGPL-3.0 |
+| [rizin](https://rizin.re) | rizinorg | Binary analysis framework | LGPL-3.0 |
 
 ### Additional resources
 

@@ -14,7 +14,7 @@ impl Default for IntentConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            severity: "error".into(),
+            severity: "warning".into(),
             exempt_patterns: vec![
                 "fn get_.*".into(),
                 "fn set_.*".into(),

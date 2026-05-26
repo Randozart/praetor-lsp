@@ -15,6 +15,8 @@ struct IntentContext<'a> {
     diags: &'a mut Vec<CheckDiagnostic>,
 }
 
+/// Check all functions in a parsed file for a preceding explanatory comment.
+/// Returns diagnostics for functions without any preceding comment.
 pub fn check_intent(
     parsed: &ParsedFile,
     config: &IntentConfig,
@@ -37,6 +39,7 @@ pub fn check_intent(
     diags
 }
 
+/// Recursively walk the AST and check every function node for a preceding comment.
 fn walk_intent_check<'a>(node: Node<'a>, ctx: &mut IntentContext<'a>) {
     if ctx.lang.function_types.contains(&node.kind()) {
         check_function_intent(node, ctx);
@@ -49,6 +52,7 @@ fn walk_intent_check<'a>(node: Node<'a>, ctx: &mut IntentContext<'a>) {
     }
 }
 
+/// Check a single function node: error if no preceding comment and not exempt.
 fn check_function_intent(fn_node: Node, ctx: &mut IntentContext) {
     let fn_name = find_child_by_path(fn_node, ctx.lang.function_name_path)
         .map(|n| node_text(n, ctx.source)).unwrap_or("");
@@ -63,12 +67,14 @@ fn check_function_intent(fn_node: Node, ctx: &mut IntentContext) {
     }
 }
 
+/// Check if a function name matches any of the configured exempt patterns.
 fn is_exempt(fn_name: &str, config: &IntentConfig) -> bool {
     config.exempt_patterns
         .iter()
         .any(|pat| Regex::new(pat).is_ok_and(|re| re.is_match(fn_name)))
 }
 
+/// Push a diagnostic for a function missing an explanatory comment.
 fn push_intent_diag(
     fn_node: Node,
     _source: &[u8],
@@ -79,19 +85,10 @@ fn push_intent_diag(
     let name = if fn_name.is_empty() { "(anonymous)" } else { fn_name };
     let start = fn_node.start_position();
     let end = fn_node.end_position();
-    let msg = if severity == DiagnosticSeverity::ERROR {
-        format!(
-            "[Intent Required] `{}` — you MUST declare in a comment how this \
-             function is expected to behave",
-            name
-        )
-    } else {
-        format!(
-            "[Intent Suggested] `{}` — consider adding a doc comment \
-             describing expected behaviour",
-            name
-        )
-    };
+    let msg = format!(
+        "add a comment before `{}` explaining what it does",
+        name
+    );
 
     diags.push(CheckDiagnostic {
         range: Range {

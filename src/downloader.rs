@@ -40,8 +40,8 @@ pub fn default_tools() -> Vec<ToolAsset> {
         ToolAsset {
             name: "semgrep".into(),
             binary_name: Some("semgrep".into()),
-            url_template: "https://github.com/returntocorp/semgrep/releases/latest/download/semgrep-v{version}-{os}-{arch}.tgz".into(),
-            version: "1.120.2".into(),
+            url_template: "https://github.com/semgrep/semgrep/releases/latest/download/semgrep-v{version}-{os}-{arch}.tgz".into(),
+            version: "1.163.0".into(),
             archive_type: Some("tgz".into()),
             extract_path: Some("semgrep".into()),
             checksum: None,
@@ -50,7 +50,7 @@ pub fn default_tools() -> Vec<ToolAsset> {
             name: "sonarlint-language-server".into(),
             binary_name: None,
             url_template: "https://repo1.maven.org/maven2/org/sonarsource/sonarlint/core/sonarlint-language-server/{version}/sonarlint-language-server-{version}.jar".into(),
-            version: "10.17.0.59868".into(),
+            version: "4.6.0.2652".into(),
             archive_type: None,
             extract_path: None,
             checksum: None,
@@ -58,10 +58,19 @@ pub fn default_tools() -> Vec<ToolAsset> {
         ToolAsset {
             name: "infer".into(),
             binary_name: Some("infer".into()),
-            url_template: "https://github.com/facebook/infer/releases/download/v{version}/infer-{os}-{arch}.tar.xz".into(),
-            version: "1.2.0".into(),
+            url_template: "https://github.com/facebook/infer/releases/download/v{version}/infer-{os}-{arch}-v{version}.tar.xz".into(),
+            version: "1.3.0".into(),
             archive_type: Some("tar.xz".into()),
             extract_path: Some("infer/bin/infer".into()),
+            checksum: None,
+        },
+        ToolAsset {
+            name: "rizin".into(),
+            binary_name: Some("rizin".into()),
+            url_template: "https://github.com/rizinorg/rizin/releases/download/v{version}/rizin-v{version}-static-{arch}.tar.xz".into(),
+            version: "0.8.2".into(),
+            archive_type: Some("tar.xz".into()),
+            extract_path: Some("rizin".into()),
             checksum: None,
         },
     ]
@@ -140,7 +149,20 @@ pub fn is_tool_ready(tool: &ToolAsset, cache: &Path) -> bool {
         return true;
     }
     if tool.name.ends_with(".jar") || tool.name.contains("sonarlint") {
-        return cache.join("lib").join(format!("{}.jar", tool.name)).exists();
+        let exact = cache.join("lib").join(format!("{}.jar", tool.name));
+        if exact.exists() {
+            return true;
+        }
+        let lib_dir = cache.join("lib");
+        if lib_dir.is_dir() {
+            if let Ok(entries) = std::fs::read_dir(&lib_dir) {
+                return entries.filter_map(|e| e.ok()).any(|e| {
+                    e.file_name().to_string_lossy().starts_with(&tool.name)
+                        && e.file_name().to_string_lossy().ends_with(".jar")
+                });
+            }
+        }
+        return false;
     }
     tool.bin_path(cache).exists()
 }
@@ -204,6 +226,28 @@ pub fn install_tool(tool: &ToolAsset, archive_path: &Path, cache: &Path) -> Resu
     Ok(())
 }
 
+/// Install semgrep via pip (preferred over binary download).
+pub fn ensure_semgrep_pip(cache: &Path) -> bool {
+    let bin_path = cache.join("bin").join("semgrep");
+    if bin_path.exists() {
+        return true;
+    }
+    info!("Installing semgrep via pip...");
+    let status = Command::new("pip3")
+        .args(["--quiet", "install", "--user", "--break-system-packages", "semgrep"])
+        .status();
+    match status {
+        Ok(s) if s.success() => {
+            info!("semgrep installed via pip");
+            true
+        }
+        _ => {
+            warn!("pip install semgrep failed — continuing without it");
+            false
+        }
+    }
+}
+
 fn extract_and_install(
     tool: &ToolAsset,
     archive_path: &Path,
@@ -258,22 +302,37 @@ fn install_binary(extracted: &Path, bin_name: &str, bin_dest: &Path) -> Result<(
                 .or_else(|_| fs::copy(&binary, bin_dest).map(|_| ()))
                 .map_err(|e| format!("failed to install binary from dir: {}", e));
         }
-        warn!("extracted path {} not found", extracted.display());
-        return Ok(());
     }
-    // tar.xz archives often have a versioned parent dir
-    if let Ok(mut entries) = fs::read_dir(extracted) {
-        if let Some(entry) = entries.next().and_then(|r| r.ok()) {
-            let inner_binary = entry.path().join(bin_name);
-            if inner_binary.exists() {
-                return fs::rename(&inner_binary, bin_dest)
-                    .or_else(|_| fs::copy(&inner_binary, bin_dest).map(|_| ()))
+    // tar archives often have a versioned parent dir — search from extraction root
+    let search_root = extracted.parent().and_then(|p| p.parent()).and_then(|p| p.parent()).unwrap_or(extracted);
+    if let Ok(mut entries) = fs::read_dir(search_root) {
+        while let Some(Ok(entry)) = entries.next() {
+            let candidate = find_binary_recursive(&entry.path(), bin_name);
+            if let Some(path) = candidate {
+                return fs::rename(&path, bin_dest)
+                    .or_else(|_| fs::copy(&path, bin_dest).map(|_| ()))
                     .map_err(|e| format!("failed to install binary: {}", e));
             }
         }
     }
-    warn!("binary {} not found in {}", bin_name, extracted.display());
-    Ok(())
+    Err(format!("binary {} not found after extraction", bin_name))
+}
+
+/// Recursively search a directory tree for a file with the given name.
+fn find_binary_recursive(dir: &Path, name: &str) -> Option<PathBuf> {
+    let entries = fs::read_dir(dir).ok()?;
+    for entry in entries {
+        let entry = entry.ok()?;
+        if entry.file_name() == name && entry.file_type().map(|t| t.is_file()).unwrap_or(false) {
+            return Some(entry.path());
+        }
+        if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+            if let found @ Some(_) = find_binary_recursive(&entry.path(), name) {
+                return found;
+            }
+        }
+    }
+    None
 }
 
 /// Ensure a tool is downloaded and installed. Returns true if ready.
@@ -316,6 +375,9 @@ pub fn ensure_all_tools(cache: &Path) -> Vec<ToolAsset> {
         if ensure_tool(tool, cache) {
             ready.push(tool.clone());
             info!("{} is ready", tool.name);
+        } else if tool.name == "semgrep" && ensure_semgrep_pip(cache) {
+            ready.push(tool.clone());
+            info!("{} is ready (pip)", tool.name);
         } else {
             warn!("{} is NOT ready — continuing without it", tool.name);
         }

@@ -16,8 +16,13 @@ impl Report {
         Self { engine, config }
     }
 
-    pub fn generate(&self, target: &str, format: &str, output: Option<&str>) {
-        let analysis = self.analyze_project(target);
+    pub fn generate(&self, target: &str, format: &str, output: Option<&str>, binary: bool) {
+        let mut analysis = self.analyze_project(target);
+
+        if binary {
+            let bin_results = self.analyze_binaries(target);
+            analysis.binary_results = bin_results;
+        }
 
         let report_str = match format {
             "html" => self.render_html(&analysis),
@@ -35,6 +40,80 @@ impl Report {
                 println!("{}", report_str);
             }
         }
+    }
+
+    /// Analyze all binary files in the target directory.
+    fn analyze_binaries(&self, target: &str) -> Vec<BinaryResult> {
+        let binary_exts = [".dll", ".exe", ".so", ".elf", ".o", ".bin", ".sys"];
+        let mut results = Vec::new();
+
+        let dir = Path::new(target);
+        if !dir.is_dir() {
+            return results;
+        }
+
+        for entry in walkdir::WalkDir::new(dir)
+            .into_iter()
+            .filter_entry(|e| {
+                let name = e.file_name().to_string_lossy();
+                !matches!(name.as_ref(),
+                    "target" | ".git" | "node_modules" | ".venv" | "venv"
+                    | "__pycache__" | ".next" | "dist" | "build"
+                )
+            })
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().is_file())
+        {
+            let path = entry.path();
+            let ext = match path.extension().and_then(|s| s.to_str()) {
+                Some(e) => format!(".{}", e),
+                None => continue,
+            };
+            if !binary_exts.contains(&ext.as_str()) {
+                continue;
+            }
+
+            match crate::binary::lift::analyze_binary(path) {
+                Ok(prog) => {
+                    let facts = crate::binary::facts::extract_facts(&prog);
+                    let patterns = crate::binary::patterns::detect_patterns(&prog);
+
+                    let anti_patterns: Vec<AntiPatternReport> = patterns.iter().map(|p| {
+                        AntiPatternReport {
+                            kind: format!("{:?}", p.kind),
+                            address: p.address,
+                            function: p.function.clone(),
+                            description: p.description.clone(),
+                            severity: format!("{:?}", p.severity),
+                        }
+                    }).collect();
+
+                    let fn_list: Vec<BinaryFunction> = prog.functions.iter().map(|f| {
+                        BinaryFunction {
+                            name: f.name.clone().unwrap_or_else(|| format!("func_{:#x}", f.address)),
+                            address: f.address,
+                            size: f.size,
+                            instructions: f.instructions.len(),
+                            basic_blocks: f.basic_blocks.len(),
+                        }
+                    }).collect();
+
+                    results.push(BinaryResult {
+                        path: path.to_string_lossy().to_string(),
+                        format: format!("{:?}", prog.format),
+                        entry_point: prog.entry_point,
+                        functions: fn_list,
+                        fact_count: facts.len(),
+                        anti_patterns,
+                    });
+                }
+                Err(e) => {
+                    eprintln!("binary analysis failed for {}: {}", path.display(), e);
+                }
+            }
+        }
+
+        results
     }
 
     fn praetor_dir(&self) -> Option<std::path::PathBuf> {
@@ -64,6 +143,7 @@ impl Report {
             languages: HashMap::new(),
             file_results: Vec::new(),
             diagnostics: Vec::new(),
+            binary_results: Vec::new(),
         };
 
         let cfg = self.config.clone().unwrap_or_default();
@@ -213,6 +293,42 @@ impl Report {
         out.push_str(&format!("- Static analysis: {} checks passed across {} files\n",
             total_diags, analysis.total_files));
 
+        // Binary analysis results
+        if !analysis.binary_results.is_empty() {
+            out.push_str(&format!("\n## Binary Analysis — {} files\n\n", analysis.binary_results.len()));
+            for bin in &analysis.binary_results {
+                out.push_str(&format!("### `{}`\n\n", bin.path));
+                out.push_str(&format!("- Format: {}\n", bin.format));
+                out.push_str(&format!("- Entry point: {:#x}\n", bin.entry_point));
+                out.push_str(&format!("- Functions: {}\n", bin.functions.len()));
+                out.push_str(&format!("- Datalog facts: {}\n", bin.fact_count));
+
+                if !bin.anti_patterns.is_empty() {
+                    out.push_str("\n#### Anti-patterns\n\n");
+                    out.push_str("| Severity | Kind | Address | Function | Description |\n");
+                    out.push_str("|----------|------|---------|----------|-------------|\n");
+                    for ap in &bin.anti_patterns {
+                        out.push_str(&format!(
+                            "| {} | {} | {:#x} | {} | {} |\n",
+                            ap.severity, ap.kind, ap.address, ap.function, ap.description
+                        ));
+                    }
+                }
+
+                if !bin.functions.is_empty() {
+                    out.push_str("\n#### Functions\n\n");
+                    out.push_str("| Name | Address | Size | Instructions | Blocks |\n");
+                    out.push_str("|------|---------|------|-------------|--------|\n");
+                    for f in &bin.functions {
+                        out.push_str(&format!(
+                            "| {} | {:#x} | {} | {} | {} |\n",
+                            f.name, f.address, f.size, f.instructions, f.basic_blocks
+                        ));
+                    }
+                }
+            }
+        }
+
         out
     }
 
@@ -252,6 +368,7 @@ pub struct ProjectAnalysis {
     pub languages: HashMap<String, LangStats>,
     pub diagnostics: Vec<(String, usize)>,
     pub file_results: Vec<FileResult>,
+    pub binary_results: Vec<BinaryResult>,
 }
 
 #[derive(Default)]
@@ -288,4 +405,36 @@ fn count_functions(node: &tree_sitter::Node, config: &crate::ast::LanguageConfig
         count += count_functions(&child, config);
     }
     count
+}
+
+// ---------------------------------------------------------------------------
+// Binary analysis result types
+// ---------------------------------------------------------------------------
+
+/// Result of analyzing a single binary file.
+pub struct BinaryResult {
+    pub path: String,
+    pub format: String,
+    pub entry_point: u64,
+    pub functions: Vec<BinaryFunction>,
+    pub fact_count: usize,
+    pub anti_patterns: Vec<AntiPatternReport>,
+}
+
+/// Summary of a function found in a binary.
+pub struct BinaryFunction {
+    pub name: String,
+    pub address: u64,
+    pub size: usize,
+    pub instructions: usize,
+    pub basic_blocks: usize,
+}
+
+/// An anti-pattern detected in a binary.
+pub struct AntiPatternReport {
+    pub kind: String,
+    pub address: u64,
+    pub function: String,
+    pub description: String,
+    pub severity: String,
 }

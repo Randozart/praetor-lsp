@@ -100,6 +100,98 @@ lang_cfg!(JAVA, tree_sitter_java::LANGUAGE,
     "method_invocation", &["identifier"],
     &["line_comment", "block_comment"]);
 
+lang_cfg!(ASM, tree_sitter_asm::LANGUAGE,
+    &["label"],
+    &["ident"],
+    &[],
+    "instruction", &["word"],
+    &["line_comment", "block_comment"]);
+// Note: some labels use "meta_ident" for local symbols (e.g. `.Ltmp0`) — those
+// report as (anonymous). Standard labels (`my_label:`) use "ident".
+
+lang_cfg!(SYSTEMVERILOG, tree_sitter_systemverilog::LANGUAGE,
+    &["function_declaration"],
+    &["function_body_declaration", "simple_identifier"],
+    &["loop_statement", "loop_generate_construct"],
+    "function_subroutine_call", &["simple_identifier"],
+    &["block_comment", "one_line_comment"]);
+
+lang_cfg!(VHDL, tree_sitter_vhdl::LANGUAGE,
+    &["subprogram_definition"],
+    &["function_specification", "identifier"],
+    // Note: Names matching VHDL library functions (e.g. "add") use "library_function"
+    // type — those report as (anonymous). Acceptable edge case.
+    &["loop_statement"],
+    "function_call", &["identifier"],
+    &["block_comment", "line_comment"]);
+
+// Ruby: method / singleton_method definitions; calls use "call" node
+lang_cfg!(RUBY, tree_sitter_ruby::LANGUAGE,
+    &["method", "singleton_method"],
+    &["identifier"],
+    &["for", "while", "until"],
+    "call", &["identifier"],
+    &["comment"]);
+
+// Lua: function_declaration; calls use "function_call" node
+lang_cfg!(LUA, tree_sitter_lua::LANGUAGE,
+    &["function_declaration"],
+    &["identifier"],
+    &["while_statement", "repeat_statement", "for_statement"],
+    "function_call", &["identifier"],
+    &["comment"]);
+
+// PHP: function_definition / method_declaration; calls use "function_call_expression"
+lang_cfg!(PHP, tree_sitter_php::LANGUAGE_PHP,
+    &["function_definition", "method_declaration"],
+    &["name", "identifier"],
+    &["for_statement", "foreach_statement", "while_statement", "do_statement"],
+    "function_call_expression", &["name", "identifier"],
+    &["comment"]);
+
+// Kotlin blocked: tree-sitter-kotlin up to v0.3.8 depends on tree-sitter < 0.23,
+// which brings in C library symbols that conflict with tree-sitter 0.26.
+
+// Swift: function_declaration
+lang_cfg!(SWIFT, tree_sitter_swift::LANGUAGE,
+    &["function_declaration"],
+    &["identifier"],
+    &["for_in_statement", "while_statement", "repeat_while_statement"],
+    "call_expression", &["identifier", "member_access_expression"],
+    &["comment"]);
+
+// Zig: function_declaration; doc_comment nodes available (future)
+lang_cfg!(ZIG, tree_sitter_zig::LANGUAGE,
+    &["function_declaration"],
+    &["identifier"],
+    &["for_expression", "while_expression"],
+    "call_expression", &["identifier", "field_access_expression"],
+    &["line_comment", "doc_comment"]);
+
+// Dart: function_signature / method_signature for declarations
+lang_cfg!(DART, tree_sitter_dart::LANGUAGE,
+    &["function_signature", "method_signature", "function_declaration"],
+    &["identifier"],
+    &["for_statement", "while_statement", "do_statement"],
+    "function_expression", &["identifier"],
+    &["comment"]);
+
+// Perl: subroutine_declaration_statement
+lang_cfg!(PERL, tree_sitter_perl::LANGUAGE,
+    &["subroutine_declaration_statement"],
+    &["identifier"],
+    &["for_statement", "foreach_statement", "while_statement", "until_statement"],
+    "function_call_expression", &["identifier"],
+    &["comment"]);
+
+// Haskell: function declarations via "function" node, name via "variable"
+lang_cfg!(HASKELL, tree_sitter_haskell::LANGUAGE,
+    &["function"],
+    &["variable"],
+    &[],
+    "function", &["variable"],
+    &["comment"]);
+
 // ---------------------------------------------------------------------------
 // Extension → config mapping
 // ---------------------------------------------------------------------------
@@ -132,5 +224,25 @@ static EXT_MAP: LazyLock<
     m.insert(".hpp", &CPP);
     m.insert(".rs", &RUST);
     m.insert(".java", &JAVA);
+    m.insert(".asm", &ASM);
+    m.insert(".s", &ASM);
+    m.insert(".S", &ASM);
+    m.insert(".assembly", &ASM);
+    m.insert(".sv", &SYSTEMVERILOG);
+    m.insert(".svh", &SYSTEMVERILOG);
+    m.insert(".vhd", &VHDL);
+    m.insert(".vhdl", &VHDL);
+    m.insert(".rb", &RUBY);
+    m.insert(".lua", &LUA);
+    m.insert(".php", &PHP);
+    // m.insert(".kt", &KOTLIN);  // Kotlin blocked — see note above
+    // m.insert(".kts", &KOTLIN);
+    m.insert(".swift", &SWIFT);
+    m.insert(".zig", &ZIG);
+    m.insert(".dart", &DART);
+    m.insert(".pl", &PERL);
+    m.insert(".pm", &PERL);
+    m.insert(".hs", &HASKELL);
+    m.insert(".lhs", &HASKELL);
     m
 });

@@ -12,7 +12,7 @@ clap = { version = "4", features = ["derive"] }
 tower-lsp = "0.20"
 
 # Tree-sitter AST parsing
-tree-sitter = "0.25"
+tree-sitter = "0.26"
 tree-sitter-language = "0.1"
 tree-sitter-python = "0.25"
 tree-sitter-javascript = "0.25"
@@ -22,6 +22,19 @@ tree-sitter-cpp = "0.23"
 tree-sitter-rust = "0.24"
 tree-sitter-java = "0.23"
 tree-sitter-typescript = "0.23"
+tree-sitter-asm = "0.24"
+tree-sitter-systemverilog = "0.3"
+tree-sitter-vhdl = "1.4"
+tree-sitter-ruby = "0.23"
+tree-sitter-lua = "0.5"
+tree-sitter-php = "0.24"
+tree-sitter-swift = "0.7"
+tree-sitter-zig = "1.1"
+tree-sitter-dart = "0.2"
+tree-sitter-perl = "1.1"
+tree-sitter-haskell = "0.23"
+# tree-sitter-kotlin = "0.3"  # — blocked: depends on tree-sitter 0.20, C symbols conflict with 0.26
+# tree-sitter-cobol = "0.1"  # — no Rust lib target yet; needs tree-sitter version compatible with 0.26
 
 # Config parsing
 serde = { version = "1", features = ["derive"] }
@@ -46,3 +59,7 @@ walkdir = "2"
 
 # Shadow verification registry hashing
 sha2 = "0.10"
+
+# Binary analysis
+goblin = "0.9"
+iced-x86 = "1.21"

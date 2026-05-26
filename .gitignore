@@ -24,6 +24,11 @@ Thumbs.db
 # Praetor auto-download cache (created per-system, not committed)
 .praetor-cache/
 
+# Infer build artifacts
+infer-out/
+src/infer-out/
+src/checks/infer-out/
+
 
 # Added by cargo
 
