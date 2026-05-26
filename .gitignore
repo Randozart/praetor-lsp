@@ -29,6 +29,11 @@ infer-out/
 src/infer-out/
 src/checks/infer-out/
 
+# npm artifacts (slopguard local install)
+node_modules/
+package-lock.json
+package.json
+
 
 # Added by cargo
 

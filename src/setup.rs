@@ -19,6 +19,7 @@ pub fn run_setup() {
     let ready = downloader::ensure_all_tools(&cache);
     info!("{}/{} external tools ready", ready.len(), 4);
     symlink_tools(&cache, &bin_dir, &ready);
+    install_slopguard();
 
     info!(
         r#"
@@ -189,5 +190,20 @@ fn ensure_symlink(src: &PathBuf, bin_dir: &PathBuf, name: &str) {
         );
     } else {
         info!("Symlinked {} -> {}", name, src.display());
+    }
+}
+
+/// Install slopguard via npm (AI-generated code pattern detector for JS/TS).
+/// v0.0.1 is a stub (no executable code), but we install it in the project for future use.
+fn install_slopguard() {
+    info!("Installing slopguard via npm (local)...");
+    let status = Command::new("npm")
+        .args(["install", "--save-dev", "slopguard"])
+        .current_dir(crate::downloader::cache_root().parent().unwrap_or(&std::env::current_dir().unwrap_or_default()))
+        .status();
+    match status {
+        Ok(s) if s.success() => info!("slopguard installed (v0.0.1 stub — waiting for real release)"),
+        Ok(_) => warn!("npm install slopguard returned non-zero"),
+        Err(e) => warn!("failed to run npm: {} — install manually: npm install slopguard", e),
     }
 }
