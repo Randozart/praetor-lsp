@@ -194,12 +194,16 @@ fn ensure_symlink(src: &PathBuf, bin_dir: &PathBuf, name: &str) {
 }
 
 /// Install slopguard via npm (AI-generated code pattern detector for JS/TS).
-/// v0.0.1 is a stub (no executable code), but we install it in the project for future use.
+/// v0.0.1 is a stub (no executable code), but we install it for future use.
 fn install_slopguard() {
-    info!("Installing slopguard via npm (local)...");
+    info!("Installing slopguard via npm...");
+    let praetor_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
     let status = Command::new("npm")
-        .args(["install", "--save-dev", "slopguard"])
-        .current_dir(crate::downloader::cache_root().parent().unwrap_or(&std::env::current_dir().unwrap_or_default()))
+        .args(["install", "slopguard"])
+        .current_dir(&praetor_dir)
         .status();
     match status {
         Ok(s) if s.success() => info!("slopguard installed (v0.0.1 stub — waiting for real release)"),
