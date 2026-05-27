@@ -12,6 +12,7 @@ mod config;
 mod downloader;
 mod facts;
 mod init;
+mod instruct;
 mod lsp;
 mod report;
 mod setup;
@@ -86,6 +87,8 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
+    /// Print AI instructions for using Praetor
+    Instruct,
     /// Binary surgery and verification
     #[command(subcommand)]
     Binary(BinaryCommands),
@@ -159,6 +162,9 @@ async fn main() {
         }
         Some(Commands::Binary(BinaryCommands::Apply { input, output, nop, jump })) => {
             run_binary_apply(&input, &output, nop.as_deref(), jump.as_deref());
+        }
+        Some(Commands::Instruct) => {
+            instruct::print_instruct();
         }
         _ => run_lsp().await,
     }
@@ -260,35 +266,18 @@ fn parse_jump_patches(jump: Option<&str>) -> Vec<binary::patch::Patch> {
 /// Start the LSP server on stdio with the Praetor backend.
 async fn run_lsp() {
     let cfg = config::PraetorConfig::discover();
-    if let Some(ref c) = cfg {
-        tracing::info!("using config from {:?}", c.path);
-    } else {
-        tracing::info!("no .praetor.toml found, using defaults");
+    match &cfg {
+        Some(c) => tracing::info!("using config from {:?}", c.path),
+        None => tracing::info!("no .praetor.toml found, using defaults"),
     }
 
     let engine = Arc::new(ast::AstEngine::new());
     tracing::info!("loaded {} languages", engine.loaded_count());
 
-    // Start downloading external tools in the background
-    let cache_path = downloader::cache_root();
-    let _ = downloader::setup_cache(&cache_path);
-    if let Err(e) = downloader::setup_cache(&cache_path) {
-        tracing::warn!("failed to setup tool cache: {}", e);
-    }
-    let cache_clone = cache_path.clone();
-    tokio::spawn(async move {
-        downloader::ensure_all_tools(&cache_clone);
-    });
-
+    init_tool_cache();
+    let bridges = build_bridges();
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
-
-    // Build external tool bridges
-    let bridges: Vec<Box<dyn bridge::Bridge + Send + Sync>> = vec![
-        Box::new(bridge::semgrep::SemgrepBridge),
-        Box::new(bridge::infer::InferBridge),
-        Box::new(bridge::sonarlint::SonarLintBridge),
-    ];
 
     let (service, socket) = LspService::new(move |client| {
         lsp::Backend::new(client, engine.clone(), cfg.clone(), bridges)
@@ -298,4 +287,23 @@ async fn run_lsp() {
     tower_lsp::Server::new(stdin, stdout, socket)
         .serve(service)
         .await;
+}
+
+fn init_tool_cache() {
+    let cache_path = downloader::cache_root();
+    if let Err(e) = downloader::setup_cache(&cache_path) {
+        tracing::warn!("failed to setup tool cache: {}", e);
+    }
+    let cache_clone = cache_path.clone();
+    tokio::spawn(async move {
+        downloader::ensure_all_tools(&cache_clone);
+    });
+}
+
+fn build_bridges() -> Vec<Box<dyn bridge::Bridge + Send + Sync>> {
+    vec![
+        Box::new(bridge::semgrep::SemgrepBridge),
+        Box::new(bridge::infer::InferBridge),
+        Box::new(bridge::sonarlint::SonarLintBridge),
+    ]
 }

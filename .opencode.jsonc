@@ -1,0 +1,17 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "lsp": {
+    "praetor": {
+      "command": ["cargo", "run", "--", "lsp"],
+      "extensions": [".rs", ".py", ".js", ".ts", ".go", ".c", ".cpp", ".h", ".hpp", ".java", ".rb", ".swift", ".zig", ".dart", ".lua", ".php", ".pl", ".pm", ".hs", ".lhs", ".asm", ".s", ".sv", ".svh", ".vhd", ".vhdl", ".kt", ".kts"]
+    },
+    "sonar": {
+      "command": ["java", "-jar", "lib/sonarlint-language-server.jar", "-stdio"],
+      "extensions": [".py", ".js", ".ts", ".go", ".java", ".cpp", ".c", ".cs", ".rb", ".rs"]
+    },
+    "complexity": {
+      "command": ["python3", "scripts/complexity_lsp.py"],
+      "extensions": ["*"]
+    }
+  }
+}

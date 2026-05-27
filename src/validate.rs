@@ -2,6 +2,8 @@ use std::sync::Arc;
 
 use tower_lsp::lsp_types::DiagnosticSeverity;
 
+use crate::instruct::with_instruct_hint;
+
 /// Run `praetor validate` — CI gate that exits 1 on unproven diagnostics.
 pub fn run_validate(target: &str, warn_only: bool, json_output: bool) {
     let engine = Arc::new(crate::ast::AstEngine::new());
@@ -51,7 +53,7 @@ fn print_json(
                 "line": d.range.start.line + 1,
                 "severity": format!("{:?}", d.severity),
                 "source": d.source,
-                "message": d.message,
+                "message": with_instruct_hint(&d.message),
             })
         }).collect::<Vec<_>>(),
     });
@@ -66,7 +68,7 @@ fn print_human(
     } else {
         println!("[FAIL] Praetor validation failed — {} unproven diagnostic(s):", failures.len());
         for (path, _, d) in failures {
-            println!("  {}:{} | {} | {}", path, d.range.start.line + 1, d.source, d.message);
+            println!("  {}:{} | {} | {}", path, d.range.start.line + 1, d.source, with_instruct_hint(&d.message));
         }
     }
 }

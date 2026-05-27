@@ -1,37 +1,5 @@
 {
   "entries": {
-    "apply_incremental_change": {
-      "original_hash": "sha256-89228662b7ddc561b214193ec3a8f611a9c4924fd91d1135c175af42c29d95b1",
-      "shadow_hash": "sha256-89228662b7ddc561b214193ec3a8f611a9c4924fd91d1135c175af42c29d95b1",
-      "winner": "shadow",
-      "ratio": 1.0,
-      "improvement": {
-        "cognitive": {
-          "before": 44,
-          "after": 12
-        }
-      },
-      "suppressed_diagnostics": [
-        "praetor/metrics"
-      ],
-      "verified_at": "2080-04-09T17:40:59Z"
-    },
-    "detect_os": {
-      "original_hash": "sha256-fcedeb38469deead2e8bf6f9b82b07fb845a49245dc62bdbea8c280d244e0c95",
-      "shadow_hash": "sha256-fcedeb38469deead2e8bf6f9b82b07fb845a49245dc62bdbea8c280d244e0c95",
-      "winner": "original",
-      "ratio": 1.9199880964345173,
-      "improvement": {
-        "cognitive": {
-          "before": 21,
-          "after": 6
-        }
-      },
-      "suppressed_diagnostics": [
-        "praetor/metrics"
-      ],
-      "verified_at": "2080-04-09T17:40:58Z"
-    },
     "gate3_bench": {
       "original_hash": "sha256-e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "shadow_hash": "sha256-e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -46,23 +14,7 @@
       "suppressed_diagnostics": [
         "praetor/complexity"
       ],
-      "verified_at": "2080-04-09T17:40:58Z"
-    },
-    "shadow_verification": {
-      "original_hash": "sha256-e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "shadow_hash": "sha256-e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "winner": "original",
-      "ratio": 1.0,
-      "improvement": {
-        "big_o": {
-          "before": 2,
-          "after": 2
-        }
-      },
-      "suppressed_diagnostics": [
-        "praetor/complexity"
-      ],
-      "verified_at": "2080-04-09T17:40:58Z"
+      "verified_at": "2080-04-12T09:49:01Z"
     },
     "compute_hover": {
       "original_hash": "sha256-e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -78,9 +30,25 @@
       "suppressed_diagnostics": [
         "praetor/complexity"
       ],
-      "verified_at": "2080-04-09T17:40:58Z"
+      "verified_at": "2080-04-12T09:49:01Z"
     },
-    "find_project_root": {
+    "apply_incremental_change": {
+      "original_hash": "sha256-0ae64c000b1c9a102bcf73c4e7a22ed4026cb24ebcd2c234b654ba92d859b6c6",
+      "shadow_hash": "sha256-0ae64c000b1c9a102bcf73c4e7a22ed4026cb24ebcd2c234b654ba92d859b6c6",
+      "winner": "shadow",
+      "ratio": 1.0,
+      "improvement": {
+        "cognitive": {
+          "before": 44,
+          "after": 12
+        }
+      },
+      "suppressed_diagnostics": [
+        "praetor/metrics"
+      ],
+      "verified_at": "2080-04-12T09:49:01Z"
+    },
+    "shadow_verification": {
       "original_hash": "sha256-e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "shadow_hash": "sha256-e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "winner": "original",
@@ -94,23 +62,23 @@
       "suppressed_diagnostics": [
         "praetor/complexity"
       ],
-      "verified_at": "2080-04-09T17:40:58Z"
+      "verified_at": "2080-04-12T09:49:01Z"
     },
-    "render_markdown": {
-      "original_hash": "sha256-e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "shadow_hash": "sha256-e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "detect_os": {
+      "original_hash": "sha256-f61b5d23d5be9f776cbc9ce717d9d6155ed1d5ac4f02c171e805b320e0084c3d",
+      "shadow_hash": "sha256-f61b5d23d5be9f776cbc9ce717d9d6155ed1d5ac4f02c171e805b320e0084c3d",
       "winner": "original",
-      "ratio": 1.0,
+      "ratio": 2.115190716637066,
       "improvement": {
-        "big_o": {
-          "before": 2,
-          "after": 2
+        "cognitive": {
+          "before": 21,
+          "after": 6
         }
       },
       "suppressed_diagnostics": [
-        "praetor/complexity"
+        "praetor/metrics"
       ],
-      "verified_at": "2080-04-09T17:40:58Z"
+      "verified_at": "2080-04-12T09:49:00Z"
     },
     "collect_failures": {
       "original_hash": "sha256-e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -126,7 +94,39 @@
       "suppressed_diagnostics": [
         "praetor/complexity"
       ],
-      "verified_at": "2080-04-09T17:40:58Z"
+      "verified_at": "2080-04-12T09:49:01Z"
+    },
+    "render_markdown": {
+      "original_hash": "sha256-e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "shadow_hash": "sha256-e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "winner": "original",
+      "ratio": 1.0,
+      "improvement": {
+        "big_o": {
+          "before": 2,
+          "after": 2
+        }
+      },
+      "suppressed_diagnostics": [
+        "praetor/complexity"
+      ],
+      "verified_at": "2080-04-12T09:49:01Z"
+    },
+    "find_project_root": {
+      "original_hash": "sha256-e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "shadow_hash": "sha256-e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "winner": "original",
+      "ratio": 1.0,
+      "improvement": {
+        "big_o": {
+          "before": 2,
+          "after": 2
+        }
+      },
+      "suppressed_diagnostics": [
+        "praetor/complexity"
+      ],
+      "verified_at": "2080-04-12T09:49:01Z"
     }
   }
 }

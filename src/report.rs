@@ -5,6 +5,7 @@ use std::sync::Arc;
 use crate::ast::AstEngine;
 use crate::checks::{CheckDiagnostic, CheckPipeline};
 use crate::config::PraetorConfig;
+use crate::instruct::with_instruct_hint;
 
 pub struct Report {
     engine: Arc<AstEngine>,
@@ -229,25 +230,24 @@ impl Report {
 
     fn render_markdown(&self, analysis: &ProjectAnalysis) -> String {
         let mut out = String::new();
+        Self::render_summary(&mut out, analysis);
+        Self::render_languages(&mut out, analysis);
+        Self::render_diagnostics(&mut out, analysis);
+        Self::render_verification_status(&mut out, analysis);
+        Self::render_binary_results(&mut out, analysis);
+        out
+    }
 
+    fn render_summary(out: &mut String, analysis: &ProjectAnalysis) {
         out.push_str(&format!("# Praetor Report — {}\n\n", analysis.root));
-
-        // Summary
         out.push_str("## Project Summary\n\n");
-        out.push_str(&format!(
-            "| Metric | Value |\n|--------|-------|\n"
-        ));
-        out.push_str(&format!(
-            "| Total files | {} |\n", analysis.total_files
-        ));
-        out.push_str(&format!(
-            "| Total lines | {} |\n", analysis.total_lines
-        ));
-        out.push_str(&format!(
-            "| Total functions | {} |\n", analysis.total_functions
-        ));
+        out.push_str("| Metric | Value |\n|--------|-------|\n");
+        out.push_str(&format!("| Total files | {} |\n", analysis.total_files));
+        out.push_str(&format!("| Total lines | {} |\n", analysis.total_lines));
+        out.push_str(&format!("| Total functions | {} |\n", analysis.total_functions));
+    }
 
-        // Language breakdown
+    fn render_languages(out: &mut String, analysis: &ProjectAnalysis) {
         out.push_str("\n## Language Breakdown\n\n");
         out.push_str("| Language | Files | Lines | Functions |\n|----------|-------|-------|-----------|\n");
         let mut langs: Vec<_> = analysis.languages.iter().collect();
@@ -258,78 +258,83 @@ impl Report {
                 ext, stats.files, stats.lines, stats.functions
             ));
         }
+    }
 
-        // Diagnostics summary
+    fn render_diagnostics(out: &mut String, analysis: &ProjectAnalysis) {
         let total_diags: usize = analysis.diagnostics.iter().map(|(_, c)| c).sum();
         out.push_str(&format!("\n## Checks — {} total diagnostics\n\n", total_diags));
 
         if analysis.file_results.is_empty() {
             out.push_str("_No files analyzed._\n");
-        } else {
-            for fr in &analysis.file_results {
-                if fr.diagnostics.is_empty() {
-                    continue;
-                }
-                out.push_str(&format!("\n### `{}`\n\n", fr.path));
-                out.push_str("| Line | Severity | Source | Message |\n|------|----------|--------|--------|\n");
-                for d in &fr.diagnostics {
-                    out.push_str(&format!(
-                        "| {}:{} | {:?} | {} | {} |\n",
-                        d.range.start.line,
-                        d.range.start.character,
-                        d.severity,
-                        d.source,
-                        d.message,
-                    ));
-                }
-            }
+            return;
         }
 
-        // Verification status
+        for fr in &analysis.file_results {
+            if fr.diagnostics.is_empty() {
+                continue;
+            }
+            out.push_str(&format!("\n### `{}`\n\n", fr.path));
+            out.push_str("| Line | Severity | Source | Message |\n|------|----------|--------|--------|\n");
+            for d in &fr.diagnostics {
+                out.push_str(&format!(
+                    "| {}:{} | {:?} | {} | {} |\n",
+                    d.range.start.line,
+                    d.range.start.character,
+                    d.severity,
+                    d.source,
+                    with_instruct_hint(&d.message),
+                ));
+            }
+        }
+    }
+
+    fn render_verification_status(out: &mut String, analysis: &ProjectAnalysis) {
+        let total_diags: usize = analysis.diagnostics.iter().map(|(_, c)| c).sum();
         out.push_str("\n## Verification Status\n\n");
         let has_graph = Path::new(".praetor/state-graph.json").exists();
         out.push_str(&format!("- State graph: {}\n", if has_graph { "[present]" } else { "[not found]" }));
         out.push_str(&format!("- Datalog rules: {} active (5 built-in rules)\n", "[OK]"));
         out.push_str(&format!("- Static analysis: {} checks passed across {} files\n",
             total_diags, analysis.total_files));
+    }
 
-        // Binary analysis results
-        if !analysis.binary_results.is_empty() {
-            out.push_str(&format!("\n## Binary Analysis — {} files\n\n", analysis.binary_results.len()));
-            for bin in &analysis.binary_results {
-                out.push_str(&format!("### `{}`\n\n", bin.path));
-                out.push_str(&format!("- Format: {}\n", bin.format));
-                out.push_str(&format!("- Entry point: {:#x}\n", bin.entry_point));
-                out.push_str(&format!("- Functions: {}\n", bin.functions.len()));
-                out.push_str(&format!("- Datalog facts: {}\n", bin.fact_count));
+    fn render_binary_results(out: &mut String, analysis: &ProjectAnalysis) {
+        if analysis.binary_results.is_empty() {
+            return;
+        }
 
-                if !bin.anti_patterns.is_empty() {
-                    out.push_str("\n#### Anti-patterns\n\n");
-                    out.push_str("| Severity | Kind | Address | Function | Description |\n");
-                    out.push_str("|----------|------|---------|----------|-------------|\n");
-                    for ap in &bin.anti_patterns {
-                        out.push_str(&format!(
-                            "| {} | {} | {:#x} | {} | {} |\n",
-                            ap.severity, ap.kind, ap.address, ap.function, ap.description
-                        ));
-                    }
+        out.push_str(&format!("\n## Binary Analysis — {} files\n\n", analysis.binary_results.len()));
+        for bin in &analysis.binary_results {
+            out.push_str(&format!("### `{}`\n\n", bin.path));
+            out.push_str(&format!("- Format: {}\n", bin.format));
+            out.push_str(&format!("- Entry point: {:#x}\n", bin.entry_point));
+            out.push_str(&format!("- Functions: {}\n", bin.functions.len()));
+            out.push_str(&format!("- Datalog facts: {}\n", bin.fact_count));
+
+            if !bin.anti_patterns.is_empty() {
+                out.push_str("\n#### Anti-patterns\n\n");
+                out.push_str("| Severity | Kind | Address | Function | Description |\n");
+                out.push_str("|----------|------|---------|----------|-------------|\n");
+                for ap in &bin.anti_patterns {
+                    out.push_str(&format!(
+                        "| {} | {} | {:#x} | {} | {} |\n",
+                        ap.severity, ap.kind, ap.address, ap.function, ap.description
+                    ));
                 }
+            }
 
-                if !bin.functions.is_empty() {
-                    out.push_str("\n#### Functions\n\n");
-                    out.push_str("| Name | Address | Size | Instructions | Blocks |\n");
-                    out.push_str("|------|---------|------|-------------|--------|\n");
-                    for f in &bin.functions {
-                        out.push_str(&format!(
-                            "| {} | {:#x} | {} | {} | {} |\n",
-                            f.name, f.address, f.size, f.instructions, f.basic_blocks
-                        ));
-                    }
+            if !bin.functions.is_empty() {
+                out.push_str("\n#### Functions\n\n");
+                out.push_str("| Name | Address | Size | Instructions | Blocks |\n");
+                out.push_str("|------|---------|------|-------------|--------|\n");
+                for f in &bin.functions {
+                    out.push_str(&format!(
+                        "| {} | {:#x} | {} | {} | {} |\n",
+                        f.name, f.address, f.size, f.instructions, f.basic_blocks
+                    ));
                 }
             }
         }
-
-        out
     }
 
     fn render_html(&self, analysis: &ProjectAnalysis) -> String {

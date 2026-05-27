@@ -52,6 +52,7 @@ pub fn bridge_diagnostic(
         message: message.to_string(),
         severity,
         source: format!("praetor/bridge-{}", source),
+        code: None,
     }
 }
 

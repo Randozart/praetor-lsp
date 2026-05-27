@@ -142,6 +142,7 @@ fn class_diagnostics(metrics: &ClassMetrics, rng: &Range) -> Vec<CheckDiagnostic
             ),
             severity: DiagnosticSeverity::WARNING,
             source: "praetor/architecture".into(),
+            code: None,
         });
     }
     if metrics.fields > GOD_FIELD_THRESHOLD {
@@ -154,6 +155,7 @@ fn class_diagnostics(metrics: &ClassMetrics, rng: &Range) -> Vec<CheckDiagnostic
             ),
             severity: DiagnosticSeverity::WARNING,
             source: "praetor/architecture".into(),
+            code: None,
         });
     }
     if metrics.fields > 2 && metrics.non_init_methods == 0 {
@@ -166,6 +168,7 @@ fn class_diagnostics(metrics: &ClassMetrics, rng: &Range) -> Vec<CheckDiagnostic
             ),
             severity: DiagnosticSeverity::HINT,
             source: "praetor/architecture".into(),
+            code: None,
         });
     }
     if metrics.inheritance_depth > 3 {
@@ -178,6 +181,7 @@ fn class_diagnostics(metrics: &ClassMetrics, rng: &Range) -> Vec<CheckDiagnostic
             ),
             severity: DiagnosticSeverity::HINT,
             source: "praetor/architecture".into(),
+            code: None,
         });
     }
     diags

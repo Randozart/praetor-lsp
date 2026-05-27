@@ -14,13 +14,19 @@ use crate::config::PraetorConfig;
 
 use self::state_graph::StateGraph;
 
-/// A single result from a check.
 #[derive(Debug, Clone)]
 pub struct CheckDiagnostic {
     pub range: Range,
     pub message: String,
     pub severity: DiagnosticSeverity,
     pub source: String,
+    pub code: Option<String>,
+}
+
+impl CheckDiagnostic {
+    pub fn new(range: Range, message: String, severity: DiagnosticSeverity, source: String, code: Option<String>) -> Self {
+        Self { range, message, severity, source, code }
+    }
 }
 
 impl From<CheckDiagnostic> for Diagnostic {
@@ -30,16 +36,15 @@ impl From<CheckDiagnostic> for Diagnostic {
             severity: Some(cd.severity),
             source: Some(cd.source),
             message: cd.message,
+            code: cd.code.map(|c| tower_lsp::lsp_types::NumberOrString::String(c)),
             ..Default::default()
         }
     }
 }
 
-/// Pipeline that runs all checks on a parsed file.
 pub struct CheckPipeline;
 
 impl CheckPipeline {
-    /// Run all checks. Optionally pass the path to .praetor/ for state graph discovery.
     pub fn run(
         parsed: &ParsedFile,
         _engine: &AstEngine,
@@ -47,33 +52,16 @@ impl CheckPipeline {
         praetor_dir: Option<&Path>,
     ) -> Vec<CheckDiagnostic> {
         let mut results = Vec::new();
-
         if config.complexity.big_o_threshold != "disabled" {
-            results.extend(complexity::check_complexity(
-                parsed,
-                &config.complexity,
-            ));
+            results.extend(complexity::check_complexity(parsed, &config.complexity));
         }
-
-        // Metrics checks (cyclomatic, cognitive, line/param counts)
         if config.complexity.cyclomatic_max > 0 || config.complexity.cognitive_max > 0 {
-            results.extend(metrics::check_metrics(
-                parsed,
-                &config.complexity,
-            ));
+            results.extend(metrics::check_metrics(parsed, &config.complexity));
         }
-
         if config.intent.enabled {
-            results.extend(intent::check_intent(
-                parsed,
-                &config.intent,
-            ));
+            results.extend(intent::check_intent(parsed, &config.intent));
         }
-
-        // Datalog facts check (always runs — built-in rules)
         results.extend(facts::check_facts(parsed, Some(&config.datalog)));
-
-        // State graph validation (opt-in — default disabled)
         if config.state_graph.enabled {
             if let Some(dir) = praetor_dir {
                 let state_graph_path = dir.join(&config.state_graph.path);
@@ -84,12 +72,8 @@ impl CheckPipeline {
                 }
             }
         }
-
-        // Architecture/SOLID heuristics
-        if config.complexity.cyclomatic_max > 0 {
-            results.extend(architecture::check_architecture(parsed));
-        }
-
+        // Architecture/SOLID heuristics (always runs)
+        results.extend(architecture::check_architecture(parsed));
         results
     }
 }

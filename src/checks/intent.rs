@@ -104,5 +104,6 @@ fn push_intent_diag(
         message: msg,
         severity,
         source: "praetor/intent".into(),
+        code: None,
     });
 }

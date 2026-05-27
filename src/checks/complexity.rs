@@ -86,6 +86,7 @@ fn analyze_function(
             DiagnosticSeverity::HINT
         },
         source: "praetor/complexity".into(),
+        code: None,
     })
 }
 

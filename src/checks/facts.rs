@@ -32,6 +32,7 @@ pub fn check_facts(
             message: fd.message,
             severity,
             source: format!("praetor/datalog-rule-{}", fd.rule_id),
+            code: None,
         }
     }).collect()
 }

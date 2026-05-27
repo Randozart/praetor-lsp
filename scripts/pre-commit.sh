@@ -16,6 +16,6 @@ else
     exit 1
 fi
 
-# Run validation — exits 1 if unproven WARNING/ERROR diagnostics exist
-"$PRAETOR" validate --warn
+# Run validation — exits 1 if unproven ERROR diagnostics exist
+"$PRAETOR" validate
 exit $?

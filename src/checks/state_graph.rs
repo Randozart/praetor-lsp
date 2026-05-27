@@ -155,5 +155,6 @@ fn transition_diag(range: &Range, message: &str, severity: DiagnosticSeverity) -
         message: format!("[State Graph] {}", message),
         severity,
         source: "praetor/state-graph".into(),
+        code: None,
     }
 }
